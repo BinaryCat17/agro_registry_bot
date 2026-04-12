@@ -8,7 +8,7 @@ if os.path.exists(_ENV_PATH):
 
 CLIENT_ID = os.getenv("YANDEX_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "")
-PUBLIC_HOST = os.getenv("PUBLIC_HOST", "https://agro.salskayastep.ru")
+PUBLIC_HOST = os.getenv("PUBLIC_HOST", "https://agrochem.salskayastep.ru")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "vv.smirnov17@ya.ru")
 REDIRECT_URI = f"{PUBLIC_HOST.rstrip('/')}/auth/callback/yandex"
 
