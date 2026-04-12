@@ -46,7 +46,10 @@ async def root():
 @app.get("/admin")
 async def admin_page(request: Request):
     user = request.session.get("user")
-    if not user or user.get("email", "").lower().strip() != yandex_oauth.ADMIN_EMAIL.lower().strip():
+    if not user:
+        return FileResponse(os.path.join(static_dir, "index.html"))
+    wl = get_whitelist_user(user.get("email", ""))
+    if not (wl and wl.get("is_admin")):
         return FileResponse(os.path.join(static_dir, "index.html"))
     return FileResponse(os.path.join(static_dir, "admin.html"))
 
@@ -204,7 +207,8 @@ async def require_admin(request: Request):
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=403, detail="Unauthorized")
-    if user.get("email", "").lower().strip() != yandex_oauth.ADMIN_EMAIL.lower().strip():
+    wl = get_whitelist_user(user.get("email", ""))
+    if not (wl and wl.get("is_admin")):
         raise HTTPException(status_code=403, detail="Admin only")
     return user
 
@@ -266,8 +270,9 @@ async def admin_add_user(data: AddUserPayload, request: Request, _=Depends(requi
 
 @app.delete("/admin/users/{email}")
 async def admin_remove_user(email: str, _=Depends(require_admin)):
-    if email.lower().strip() == yandex_oauth.ADMIN_EMAIL.lower().strip():
-        raise HTTPException(status_code=400, detail="Cannot remove root admin")
+    target = get_whitelist_user(email)
+    if target and target.get("is_admin"):
+        raise HTTPException(status_code=400, detail="Cannot remove admin")
     remove_whitelist_user(email)
     return {"status": "ok"}
 
