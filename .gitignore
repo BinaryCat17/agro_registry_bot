@@ -26,5 +26,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Secrets
+.env
+*.env
+
 # Cloudflare
 tunnel-credentials.json
