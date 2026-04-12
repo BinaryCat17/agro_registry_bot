@@ -35,6 +35,8 @@
     .btn { padding: 10px 14px; border-radius: 10px; border: none; background: var(--accent); color: #fff; font-weight: 700; cursor: pointer; }
     .btn:hover { background: var(--accent-hover); }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-secondary { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+    .btn-secondary:hover { background: var(--border); }
     .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .2s; border-radius: 24px; }
@@ -76,6 +78,10 @@
     .close:hover { background: var(--border); }
     .loader { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .auth-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; text-align: center; }
+    .auth-box h3 { margin: 0 0 10px; }
+    .auth-box p { color: var(--muted); margin: 0 0 16px; }
+    .user-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 10px; font-size: 14px; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -188,16 +194,37 @@
 
       <!-- CHAT -->
       <div v-else-if="tab==='chat'">
-        <div class="chat">
-          <div v-for="(m,i) in messages" :key="i" class="msg" :class="m.role">
-            <div v-if="m.role==='user'">{{ m.content }}</div>
-            <div v-else v-html="renderMarkdown(m.content)"></div>
-          </div>
-          <div v-if="chatLoading" class="msg bot"><span class="loader"></span>Думаю...</div>
+        <div class="user-bar" v-if="user">
+          <span>{{ user.name || user.email }}</span>
+          <a v-if="isAdmin" href="/admin" style="color:var(--accent);font-size:13px;text-decoration:none;">Админка</a>
+          <a href="/auth/logout"><button class="btn btn-secondary" style="padding:6px 10px;font-size:13px;">Выйти</button></a>
         </div>
-        <div class="chat-input">
-          <textarea v-model="chatInput" @keydown.enter.exact.prevent="sendChat" placeholder="Спросите о препарате, культуре или вредном объекте..."></textarea>
-          <button class="btn" @click="sendChat" :disabled="chatLoading || !chatInput.trim()">Отправить</button>
+
+        <div v-if="!user" class="auth-box">
+          <h3>🔒 AI помощник</h3>
+          <p>Доступ к AI помощнику ограничен. Авторизуйтесь через Яндекс, чтобы продолжить.</p>
+          <a href="/auth/login/yandex"><button class="btn">Войти через Яндекс</button></a>
+        </div>
+
+        <div v-else-if="user && !hasAccess" class="auth-box">
+          <h3>🚫 Доступ не выдан</h3>
+          <p>Вам доступ к AI помощнику не выдан, обратитесь к разработчикам.</p>
+          <p style="font-size:12px;opacity:.6;">Вы вошли как {{ user.email }}</p>
+          <a href="/auth/logout"><button class="btn btn-secondary">Выйти</button></a>
+        </div>
+
+        <div v-else-if="user && hasAccess">
+          <div class="chat">
+            <div v-for="(m,i) in messages" :key="i" class="msg" :class="m.role">
+              <div v-if="m.role==='user'">{{ m.content }}</div>
+              <div v-else v-html="renderMarkdown(m.content)"></div>
+            </div>
+            <div v-if="chatLoading" class="msg bot"><span class="loader"></span>Думаю...</div>
+          </div>
+          <div class="chat-input">
+            <textarea v-model="chatInput" @keydown.enter.exact.prevent="sendChat" placeholder="Спросите о препарате, культуре или вредном объекте..."></textarea>
+            <button class="btn" @click="sendChat" :disabled="chatLoading || !chatInput.trim()">Отправить</button>
+          </div>
         </div>
       </div>
     </div>
@@ -266,6 +293,9 @@
           page: 1,
           total: 0,
           limit: 20,
+          user: null,
+          hasAccess: false,
+          isAdmin: false,
           messages: [
             { role: 'bot', content: 'Привет! Я помогу найти информацию по государственному реестру пестицидов и агрохимикатов.\n\nПримеры вопросов:\n• «Абакус Прайм»\n• «Пестициды для пшеницы озимой»\n• «От колорадского жука»' }
           ],
@@ -350,12 +380,30 @@
           this.chatLoading = true;
           try {
             const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
-            const d = await r.json();
-            this.messages.push({ role: 'bot', content: d.answer || 'Пустой ответ' });
+            if (r.status === 403) {
+              this.hasAccess = false;
+              this.messages.push({ role: 'bot', content: 'Вам доступ к AI помощнику не выдан, обратитесь к разработчикам.' });
+            } else {
+              const d = await r.json();
+              this.messages.push({ role: 'bot', content: d.answer || 'Пустой ответ' });
+            }
           } catch (e) {
             this.messages.push({ role: 'bot', content: '⚠️ Ошибка соединения с сервером.' });
           }
           this.chatLoading = false;
+        },
+        async checkAuth() {
+          try {
+            const r = await fetch('/auth/me');
+            const d = await r.json();
+            this.user = d.user || null;
+            this.hasAccess = d.has_access || false;
+            this.isAdmin = d.is_admin || false;
+          } catch (e) {
+            this.user = null;
+            this.hasAccess = false;
+            this.isAdmin = false;
+          }
         }
       },
       watch: {
@@ -369,6 +417,7 @@
       },
       mounted() {
         this.search(1);
+        this.checkAuth();
         fetch('/api/last-update')
           .then(r => r.json())
           .then(d => { this.lastUpdate = d.last_update || null; })

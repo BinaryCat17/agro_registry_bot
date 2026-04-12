@@ -5,11 +5,20 @@ import re
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, Query
+from dotenv import load_dotenv
+
+_ENV_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+if os.path.exists(_ENV_PATH):
+    load_dotenv(_ENV_PATH)
+
+from fastapi import FastAPI, Query, Request, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 from src.database import RegistryDatabase
+from src.auth_db import init_auth_tables, get_user as get_whitelist_user, add_user as add_whitelist_user, remove_user as remove_whitelist_user, list_users as list_whitelist_users
+from src import yandex_oauth
 
 def yo_pattern(p: str):
     """Заменяет е/ё на регексный класс [её] для взаимозаменяемого поиска."""
@@ -19,13 +28,27 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 db = RegistryDatabase(db_path=DB_PATH)
 
 app = FastAPI(title="АгроРеестр AI", description="Поиск по государственному реестру пестицидов и агрохимикатов")
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "change-me-secret"), max_age=3600*24*7)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+@app.on_event("startup")
+async def startup_event():
+    init_auth_tables()
+    if not get_whitelist_user(yandex_oauth.ADMIN_EMAIL):
+        add_whitelist_user(yandex_oauth.ADMIN_EMAIL, is_admin=True, granted_by="system")
+
 @app.get("/")
 async def root():
     return FileResponse(os.path.join(static_dir, "index.html"))
+
+@app.get("/admin")
+async def admin_page(request: Request):
+    user = request.session.get("user")
+    if not user or user.get("email", "").lower().strip() != yandex_oauth.ADMIN_EMAIL.lower().strip():
+        return FileResponse(os.path.join(static_dir, "index.html"))
+    return FileResponse(os.path.join(static_dir, "admin.html"))
 
 @app.get("/api/search")
 async def api_search(
@@ -164,6 +187,94 @@ async def api_product_detail(type: str = Query(...), row_id: int = Query(...)):
             return {"info": info, "applications": apps}
     return JSONResponse(status_code=404, content={"error": "Not found"})
 
+# ───────────────────────────────────────────────────────────────────────────────
+# AUTH
+# ───────────────────────────────────────────────────────────────────────────────
+
+async def require_chat_access(request: Request):
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(status_code=403, detail="Вам доступ к AI помощнику не выдан, обратитесь к разработчикам")
+    wl = get_whitelist_user(user.get("email", ""))
+    if not wl:
+        raise HTTPException(status_code=403, detail="Вам доступ к AI помощнику не выдан, обратитесь к разработчикам")
+    return user
+
+async def require_admin(request: Request):
+    user = request.session.get("user")
+    if not user:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    if user.get("email", "").lower().strip() != yandex_oauth.ADMIN_EMAIL.lower().strip():
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    user = request.session.get("user")
+    if not user:
+        return {"user": None}
+    wl = get_whitelist_user(user.get("email", ""))
+    return {"user": user, "has_access": bool(wl), "is_admin": bool(wl and wl.get("is_admin"))}
+
+@app.get("/auth/login/yandex")
+async def auth_login_yandex(request: Request):
+    try:
+        url = yandex_oauth.get_auth_url()
+        return RedirectResponse(url)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/auth/callback/yandex")
+async def auth_callback_yandex(request: Request, code: str = "", error: str = ""):
+    if error:
+        return JSONResponse(status_code=400, content={"error": error})
+    if not code:
+        return JSONResponse(status_code=400, content={"error": "Missing code"})
+    try:
+        token_data = yandex_oauth.exchange_code(code)
+        access_token = token_data.get("access_token")
+        info = yandex_oauth.get_user_info(access_token)
+        email = info.get("default_email") or info.get("emails", [None])[0]
+        if not email:
+            return JSONResponse(status_code=400, content={"error": "No email from Yandex"})
+        request.session["user"] = {"email": email.lower().strip(), "name": info.get("display_name", "")}
+        return RedirectResponse("/?tab=chat")
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+@app.get("/auth/logout")
+async def auth_logout(request: Request):
+    request.session.pop("user", None)
+    return RedirectResponse("/")
+
+# ───────────────────────────────────────────────────────────────────────────────
+# ADMIN
+# ───────────────────────────────────────────────────────────────────────────────
+
+class AddUserPayload(BaseModel):
+    email: str
+
+@app.get("/admin/users")
+async def admin_list_users(_=Depends(require_admin)):
+    return {"users": list_whitelist_users()}
+
+@app.post("/admin/users")
+async def admin_add_user(data: AddUserPayload, request: Request, _=Depends(require_admin)):
+    admin_email = request.session.get("user", {}).get("email", "")
+    add_whitelist_user(data.email.strip(), is_admin=False, granted_by=admin_email)
+    return {"status": "ok"}
+
+@app.delete("/admin/users/{email}")
+async def admin_remove_user(email: str, _=Depends(require_admin)):
+    if email.lower().strip() == yandex_oauth.ADMIN_EMAIL.lower().strip():
+        raise HTTPException(status_code=400, detail="Cannot remove root admin")
+    remove_whitelist_user(email)
+    return {"status": "ok"}
+
+# ───────────────────────────────────────────────────────────────────────────────
+# CHAT
+# ───────────────────────────────────────────────────────────────────────────────
+
 class ChatRequest(BaseModel):
     message: str
 
@@ -190,7 +301,7 @@ _CROP_HINTS = {
 }
 
 @app.post("/api/chat")
-async def api_chat(req: ChatRequest):
+async def api_chat(req: ChatRequest, user=Depends(require_chat_access)):
     msg = req.message.lower().strip()
     if not msg:
         return {"answer": "Задайте, пожалуйста, вопрос о препарате, культуре или вредном объекте."}
