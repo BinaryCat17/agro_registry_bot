@@ -1,0 +1,7 @@
+tunnel: 0cbd0279-2c10-4fa9-af12-6425580ca360
+credentials-file: /root/.cloudflared/0cbd0279-2c10-4fa9-af12-6425580ca360.json
+
+ingress:
+  - hostname: agro.salskayastep.ru
+    service: http://localhost:8080
+  - service: http_status:404
