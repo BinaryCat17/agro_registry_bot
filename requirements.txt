@@ -2,4 +2,6 @@ requests
 lxml
 python-dotenv
 itsdangerous
-
+litellm
+pyyaml
+tavily-python

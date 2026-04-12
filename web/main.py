@@ -19,6 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.database import RegistryDatabase
 from src.auth_db import init_auth_tables, get_user as get_whitelist_user, add_user as add_whitelist_user, remove_user as remove_whitelist_user, list_users as list_whitelist_users
 from src import yandex_oauth
+from src.agent import RegistryAgent
 
 def yo_pattern(p: str):
     """Заменяет е/ё на регексный класс [её] для взаимозаменяемого поиска."""
@@ -280,123 +281,21 @@ async def admin_remove_user(email: str, _=Depends(require_admin)):
 # CHAT
 # ───────────────────────────────────────────────────────────────────────────────
 
+from typing import List, Dict, Optional
+
 class ChatRequest(BaseModel):
     message: str
-
-_STOP_WORDS = {
-    "какой","какие","какое","какая","какого","какой-то","какие-то","найди","поиск","препарат","препараты",
-    "информация","про","для","что","такое","есть","зарегистрирован","зарегистрированы","фунгицид","фунгициды",
-    "инсектицид","инсектициды","гербицид","гербициды","удобрение","удобрения","агрохимикат","агрохимикаты",
-    "покажи","дай","скажи","мне","нам","пожалуйста","спасибо","привет","подскажи","расскажи","где",
-    "когда","почему","кто","этот","эта","это","тот","та","те","такой","такие","весь","все","вся","всё",
-    "или","и","но","а","если","тогда","чтобы","который","которая","которые","быть","есть","был","была",
-    "были","будет","как","так","очень","более","менее","тоже","также","да","нет","ли","же","бы","ни",
-    "по","на","в","с","из","за","до","от","под","над","перед","при","через","про","без","для","об","со",
-    "из-за","по","насчет","сколько","много","мало","несколько","два","три","раз","другой","другие",
-    "состав","регламент","действующее","вещество","вещества","подробнее","о","больше",
-    "против","защита","защиту","обработка","обработку","опрыскивание","внедрение","применение"
-}
-
-_CROP_HINTS = {
-    "пшеница", "картофель", "ячмень", "свекла", "виноград", "кукуруза", "подсолнечник", "соя", "рапс",
-    "лен", "горох", "овес", "рожь", "рис", "гречиха", "горчица", "клевер", "люпин", "люцерна",
-    "яблоня", "вишня", "слива", "персик", "груша", "черешня", "малина", "смородина", "клубника", "земляника",
-    "томат", "перец", "огурец", "капуста", "морковь", "лук", "чеснок", "тыква", "арбуз", "дыня",
-    "бобовые", "зерновые", "кормовые", "овощные", "плодовые", "ягодные"
-}
+    history: List[Dict[str, str]] = []
+    model: Optional[str] = None
 
 @app.post("/api/chat")
-async def api_chat(req: ChatRequest, user=Depends(require_chat_access)):
-    msg = req.message.lower().strip()
-    if not msg:
+async def api_chat(req: ChatRequest, request: Request, user=Depends(require_chat_access)):
+    if not req.message.strip():
         return {"answer": "Задайте, пожалуйста, вопрос о препарате, культуре или вредном объекте."}
-
-    words = re.findall(r'[а-яa-z0-9ё\-]+', msg)
-    terms = [w for w in words if len(w) > 3 and w not in _STOP_WORDS]
-
-    # 1. Сначала ищем как название препарата (по фразе из terms)
-    answer_parts = []
-    found_product = False
-    if terms:
-        for n in range(min(3, len(terms)), 0, -1):
-            phrase = " ".join(terms[:n]).capitalize()
-            pests = db.find_pesticide_by_name(phrase, active_only=False, limit=5)
-            if not pests:
-                pests = db.find_pesticide_by_dv(phrase, active_only=False, limit=5)
-            agros = db.find_agrochemical_by_name(phrase, active_only=False, limit=5)
-            if pests or agros:
-                found_product = True
-                for p in pests:
-                    dv_text = ""
-                    if p.get('deystvuyushchee_veshchestvo'):
-                        try:
-                            dv_list = json.loads(p['deystvuyushchee_veshchestvo'])
-                            dv_text = ", ".join([f"{d['veshchestvo']} {d['koncentraciya']} г/л" for d in dv_list])
-                        except Exception:
-                            dv_text = str(p['deystvuyushchee_veshchestvo'])
-                    answer_parts.append(
-                        f"**{p['naimenovanie']}** (пестицид)\n"
-                        f"- Рег. №: {p['nomer_reg']}\n"
-                        f"- Регистратор: {p['registrant']}\n"
-                        f"- Статус: {p['status']} до {p['srok_reg']}\n"
-                        f"- ДВ: {dv_text or '-'}\n"
-                        f"- Форма: {p.get('preparativnaya_forma') or '-'}"
-                    )
-                for a in agros:
-                    answer_parts.append(
-                        f"**{a['preparat']}** (агрохимикат)\n"
-                        f"- Рег. №: {a['rn']}\n"
-                        f"- Регистратор: {a['registrant']}\n"
-                        f"- Статус: {a['status']} до {a['srok_reg']}\n"
-                        f"- Группа: {a.get('group_name') or '-'}"
-                    )
-                break
-
-    if found_product:
-        return {"answer": "\n\n".join(answer_parts)}
-
-    # 2. Проверяем, запрос по культуре
-    is_crop_query = any(h in msg for h in _CROP_HINTS)
-    if is_crop_query:
-        crop_terms = [h for h in _CROP_HINTS if h in msg]
-        for crop in crop_terms[:2]:
-            pests = db.search_pesticides_by_crop(crop, active_only=True, limit=10)
-            agros = db.search_agrochemicals_by_crop(crop, active_only=True, limit=10)
-            if pests or agros:
-                answer_parts.append(f"### Результаты для «{crop.capitalize()}»")
-                if pests:
-                    answer_parts.append(f"**Пестициды ({len(pests)} найдено):**")
-                    for p in pests[:5]:
-                        answer_parts.append(f"- **{p['naimenovanie']}** — {p['registrant']} (до {p['srok_reg']})")
-                    if len(pests) > 5:
-                        answer_parts.append(f"- ...и ещё {len(pests) - 5} препаратов")
-                if agros:
-                    answer_parts.append(f"**Агрохимикаты ({len(agros)} найдено):**")
-                    for a in agros[:5]:
-                        answer_parts.append(f"- **{a['preparat']}** — {a['registrant']} (до {a['srok_reg']})")
-                    if len(agros) > 5:
-                        answer_parts.append(f"- ...и ещё {len(agros) - 5} препаратов")
-        if not answer_parts:
-            answer_parts.append("По указанной культуре ничего не найдено в реестре.")
-        return {"answer": "\n\n".join(answer_parts)}
-
-    # 3. Пробуем как вредный объект
-    pests = db.search_pesticides_by_pest(msg, active_only=True, limit=10)
-    if pests:
-        answer_parts.append(f"### Пестициды от «{req.message.strip()}» ({len(pests)} найдено)")
-        for p in pests[:7]:
-            answer_parts.append(f"- **{p['naimenovanie']}** — {p['registrant']} (до {p['srok_reg']})")
-        if len(pests) > 7:
-            answer_parts.append(f"- ...и ещё {len(pests) - 7} препаратов")
-        return {"answer": "\n\n".join(answer_parts)}
-
-    answer_parts.append("Я не смог найти информацию по этому запросу в реестре.")
-    answer_parts.append("Примеры запросов:")
-    answer_parts.append("- «Абакус Ультра»")
-    answer_parts.append("- «Престиж состав»")
-    answer_parts.append("- «Пестициды для пшеницы озимой»")
-    answer_parts.append("- «От колорадского жука»")
-    return {"answer": "\n\n".join(answer_parts)}
+    session_id = request.session.get("_id", "default")
+    agent = RegistryAgent(session_id=session_id, model=req.model)
+    answer = await agent.process_message(req.message.strip(), req.history)
+    return {"answer": answer}
 
 if __name__ == "__main__":
     import uvicorn

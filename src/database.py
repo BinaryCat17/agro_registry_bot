@@ -30,7 +30,14 @@ class RegistryDatabase:
             self.conn.create_function("UPPER", 1, lambda x: str(x).upper() if x is not None else None)
             self.conn.create_function("LN", 1, lambda x: math.log(x) if x is not None and x > 0 else 0)
             self.conn.create_function("LOG", 1, lambda x: math.log10(x) if x is not None and x > 0 else 0)
+            # Таблицы популярности для совместимости с AI-агентом
+            self.conn.execute("CREATE TABLE IF NOT EXISTS product_popularity (naimenovanie TEXT PRIMARY KEY, score INTEGER DEFAULT 0, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
+            self.conn.execute("CREATE TABLE IF NOT EXISTS agrokhimikaty_popularity (preparat TEXT PRIMARY KEY, score INTEGER DEFAULT 0, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
+            self.conn.commit()
         return self.conn
+
+    def execute_query(self, query: str):
+        return self.execute(query)
 
     def execute(self, query: str, params=()):
         try:

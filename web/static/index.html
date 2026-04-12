@@ -214,6 +214,14 @@
         </div>
 
         <div v-else-if="user && hasAccess">
+          <div style="margin-bottom:10px;">
+            <select v-model="selectedModel" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:8px 10px;border-radius:10px;">
+              <option v-for="m in chatModels" :key="m.value" :value="m.value">{{ m.label }}</option>
+            </select>
+            <span style="color:var(--muted);font-size:12px;margin-left:8px;">
+              Модель
+            </span>
+          </div>
           <div class="chat">
             <div v-for="(m,i) in messages" :key="i" class="msg" :class="m.role">
               <div v-if="m.role==='user'">{{ m.content }}</div>
@@ -296,6 +304,14 @@
           user: null,
           hasAccess: false,
           isAdmin: false,
+          selectedModel: '',
+          chatModels: [
+            { value: '', label: 'По умолчанию' },
+            { value: 'gemini-flash-lite', label: 'Gemini Flash Lite' },
+            { value: 'gemini-flash', label: 'Gemini Flash' },
+            { value: 'kimi-k2p5', label: 'Kimi K2.5' },
+            { value: 'gpt-4o-mini', label: 'GPT-4o mini' }
+          ],
           messages: [
             { role: 'bot', content: 'Привет! Я помогу найти информацию по государственному реестру пестицидов и агрохимикатов.\n\nПримеры вопросов:\n• «Абакус Прайм»\n• «Пестициды для пшеницы озимой»\n• «От колорадского жука»' }
           ],
@@ -379,7 +395,10 @@
           this.chatInput = '';
           this.chatLoading = true;
           try {
-            const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) });
+            const history = this.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+            const payload = { message: text, history };
+            if (this.selectedModel) payload.model = this.selectedModel;
+            const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             if (r.status === 403) {
               this.hasAccess = false;
               this.messages.push({ role: 'bot', content: 'Вам доступ к AI помощнику не выдан, обратитесь к разработчикам.' });
