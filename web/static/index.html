@@ -43,8 +43,8 @@
     .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
     input:checked + .slider { background-color: var(--accent); }
     input:checked + .slider:before { transform: translateX(20px); }
-    .table-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel); }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; overflow-x: auto; background: var(--panel); }
+    table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 14px; }
     th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); }
     th { background: rgba(16,185,129,.06); color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 12px; }
     tr:hover td { background: rgba(255,255,255,.03); }
@@ -214,14 +214,6 @@
         </div>
 
         <div v-else-if="user && hasAccess">
-          <div style="margin-bottom:10px;">
-            <select v-model="selectedModel" style="background:var(--card);color:var(--text);border:1px solid var(--border);padding:8px 10px;border-radius:10px;">
-              <option v-for="m in chatModels" :key="m.value" :value="m.value">{{ m.label }}</option>
-            </select>
-            <span style="color:var(--muted);font-size:12px;margin-left:8px;">
-              Модель
-            </span>
-          </div>
           <div class="chat">
             <div v-for="(m,i) in messages" :key="i" class="msg" :class="m.role">
               <div v-if="m.role==='user'">{{ m.content }}</div>
@@ -304,14 +296,6 @@
           user: null,
           hasAccess: false,
           isAdmin: false,
-          selectedModel: '',
-          chatModels: [
-            { value: '', label: 'По умолчанию' },
-            { value: 'gemini-flash-lite', label: 'Gemini Flash Lite' },
-            { value: 'gemini-flash', label: 'Gemini Flash' },
-            { value: 'kimi-k2p5', label: 'Kimi K2.5' },
-            { value: 'gpt-4o-mini', label: 'GPT-4o mini' }
-          ],
           messages: [
             { role: 'bot', content: 'Привет! Я помогу найти информацию по государственному реестру пестицидов и агрохимикатов.\n\nПримеры вопросов:\n• «Абакус Прайм»\n• «Пестициды для пшеницы озимой»\n• «От колорадского жука»' }
           ],
@@ -395,9 +379,8 @@
           this.chatInput = '';
           this.chatLoading = true;
           try {
-            const history = this.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+            const history = this.messages.slice(0, -1).map(m => ({ role: m.role === 'bot' ? 'assistant' : m.role, content: m.content }));
             const payload = { message: text, history };
-            if (this.selectedModel) payload.model = this.selectedModel;
             const r = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             if (r.status === 403) {
               this.hasAccess = false;
