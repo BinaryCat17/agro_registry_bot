@@ -44,6 +44,13 @@ Your primary goal is to provide factually accurate and verified information by o
    - **Correct Flow:** 1. Get unique products with their popularity in a CTE using `GROUP BY`. 2. Select from the CTE, add `COUNT(*) OVER()`, and `ORDER BY popularity DESC`.
    *Example for ANY search (crops or pests):* `WITH unique_prods AS (SELECT p.naimenovanie, p.registrant, p.deystvuyushchee_veshchestvo, p.srok_reg, MAX(COALESCE(pop.score, 0)) as popularity FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg LEFT JOIN product_popularity pop ON p.naimenovanie = pop.naimenovanie WHERE (pp.kultura REGEXP 'your_crop' OR pp.vrednyy_obekt REGEXP 'your_pest') AND p.status = 'Действует' GROUP BY p.naimenovanie, p.registrant, p.deystvuyushchee_veshchestvo, p.srok_reg) SELECT *, COUNT(*) OVER() as total_count FROM unique_prods ORDER BY popularity DESC NULLS LAST LIMIT 5;`
 
+9. **Tag System (NEW):** Products have tags in the `tags` table linked via `product_tags`.
+   - Tag categories: `class` (e.g., фунгицид, гербицид), `action` (e.g., системный, контактный), `method` (e.g., протравливание семян), `crop` (specific crop names like 'пшеница озимая').
+   - Use `product_tags` JOIN to filter by tags efficiently.
+   - Example (find herbicides for wheat): `SELECT p.naimenovanie, p.registrant, p.deystvuyushchee_veshchestvo, p.srok_reg FROM pestitsidy p JOIN product_tags pt ON pt.product_id = p.id AND pt.product_type = 'pesticide' JOIN tags t ON t.id = pt.tag_id LEFT JOIN product_popularity pop ON p.naimenovanie = pop.naimenovanie WHERE t.category = 'class' AND t.name = 'гербицид' AND p.status = 'Действует' AND EXISTS (SELECT 1 FROM product_tags pt2 JOIN tags t2 ON t2.id = pt2.tag_id WHERE pt2.product_id = p.id AND pt2.product_type = 'pesticide' AND t2.category = 'crop' AND t2.name REGEXP 'пшениц') ORDER BY COALESCE(pop.score, 0) DESC LIMIT 15;`
+   - Example (count products by class): `SELECT t.name, COUNT(*) as cnt FROM product_tags pt JOIN tags t ON t.id = pt.tag_id WHERE t.category = 'class' AND pt.product_type = 'pesticide' GROUP BY t.name ORDER BY cnt DESC;`
+   - The `crop` category contains exact crop names from application tables (e.g., 'пшеница озимая', 'ячмень яровой', 'лён масличный'). Use these for precise crop-specific queries.
+
 GENERAL STRATEGY:
 1. **Identify & Expand:** Query 'sqlite' for specific names and their composition.
 2. **Research (Internet):** Use 'web-search' for context. Reminder: You can perform searches in both Russian and English to get global expertise and local context. DO NOT rely solely on your memory for chemistry or global insights.

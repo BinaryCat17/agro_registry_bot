@@ -54,6 +54,36 @@ async def admin_page(request: Request):
         return FileResponse(os.path.join(static_dir, "index.html"))
     return FileResponse(os.path.join(static_dir, "admin.html"))
 
+def _tag_filter_sql(table_alias: str, product_type: str, tag_ids: list):
+    if not tag_ids:
+        return "", []
+    placeholders = ",".join(["?"] * len(tag_ids))
+    return f"""AND EXISTS (
+        SELECT 1 FROM product_tags pt2
+        WHERE pt2.product_id = {table_alias}.id
+          AND pt2.product_type = '{product_type}'
+          AND pt2.tag_id IN ({placeholders})
+    )""", tag_ids
+
+@app.get("/api/tags")
+async def api_tags(type: str = Query("pesticides", regex="^(pesticides|agrochemicals)$")):
+    product_type = "pesticide" if type == "pesticides" else "agrochemical"
+    rows = db.execute("""
+        SELECT t.category, t.id, t.name FROM tags t
+        WHERE EXISTS (
+            SELECT 1 FROM product_tags pt
+            WHERE pt.tag_id = t.id AND pt.product_type = ?
+        )
+        ORDER BY t.category, t.name
+    """, (product_type,))
+    result = {}
+    for r in rows:
+        cat = r['category']
+        if cat not in result:
+            result[cat] = []
+        result[cat].append({"id": r['id'], "name": r['name']})
+    return result
+
 @app.get("/api/search")
 async def api_search(
     type: str = Query("pesticides", regex="^(pesticides|agrochemicals)$"),
@@ -61,45 +91,62 @@ async def api_search(
     field: str = Query("all", regex="^(all|name|crop|pest|dv|reg_number)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    active_only: bool = Query(True)
+    active_only: bool = Query(True),
+    tags: str = Query("")
 ):
     offset = (page - 1) * limit
+    tag_ids = [int(t) for t in tags.split(",") if t.strip().isdigit()] if tags else []
 
     if type == "pesticides":
+        tag_sql, tag_params = _tag_filter_sql("p", "pesticide", tag_ids)
         if field == "name":
             items = db.find_pesticide_by_name(q, active_only=active_only, limit=limit, offset=offset)
             where = "p.naimenovanie REGEXP ?"
             if active_only:
                 where += " AND p.status = 'Действует'"
-            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy p WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql
+            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy p WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
+            # re-query with tag filter if tags present
+            if tag_ids:
+                items = db.execute(f"SELECT p.* FROM pestitsidy p WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "dv":
             items = db.find_pesticide_by_dv(q, active_only=active_only, limit=limit, offset=offset)
             where = "exists (SELECT 1 FROM json_each(p.deystvuyushchee_veshchestvo) dv WHERE dv.value->>'veshchestvo' REGEXP ?)"
             if active_only:
                 where += " AND p.status = 'Действует'"
-            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy p WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql
+            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy p WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
+            if tag_ids:
+                items = db.execute(f"SELECT p.* FROM pestitsidy p WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "crop":
             items = db.search_pesticides_by_crop(q, active_only=active_only, limit=limit, offset=offset)
             where = "pp.kultura REGEXP ?"
             if active_only:
                 where += " AND p.status = 'Действует'"
-            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql
+            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
+            if tag_ids:
+                items = db.execute(f"SELECT DISTINCT p.* FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "pest":
             items = db.search_pesticides_by_pest(q, active_only=active_only, limit=limit, offset=offset)
             where = "pp.vrednyy_obekt REGEXP ?"
             if active_only:
                 where += " AND p.status = 'Действует'"
-            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql
+            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
+            if tag_ids:
+                items = db.execute(f"SELECT DISTINCT p.* FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "reg_number":
             where = "nomer_reg REGEXP ?"
             if active_only:
                 where += " AND status = 'Действует'"
-            items = db.execute(f"SELECT * FROM pestitsidy WHERE {where} ORDER BY naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q),))
-            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql.replace("p.id", "pestitsidy.id")
+            items = db.execute(f"SELECT * FROM pestitsidy WHERE {where} ORDER BY naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
+            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
         else:
             seen = set()
@@ -116,29 +163,51 @@ async def api_search(
             for r in db.search_pesticides_by_pest(q, active_only=active_only, limit=10000):
                 if r['id'] not in seen:
                     seen.add(r['id']); all_items.append(r)
+            if tag_ids:
+                tag_placeholders = ",".join(["?"] * len(tag_ids))
+                ids = [r['id'] for r in all_items]
+                if ids:
+                    id_placeholders = ",".join(["?"] * len(ids))
+                    filtered = db.execute(f"""
+                        SELECT product_id FROM product_tags
+                        WHERE product_type = 'pesticide' AND tag_id IN ({tag_placeholders}) AND product_id IN ({id_placeholders})
+                        GROUP BY product_id HAVING COUNT(DISTINCT tag_id) >= {len(tag_ids)}
+                    """, (*tag_ids, *ids))
+                    allowed = {r['product_id'] for r in filtered}
+                    all_items = [r for r in all_items if r['id'] in allowed]
+                else:
+                    all_items = []
             total = len(all_items)
             items = all_items[offset:offset+limit]
     else:
+        tag_sql, tag_params = _tag_filter_sql("a", "agrochemical", tag_ids)
         if field == "name":
             items = db.find_agrochemical_by_name(q, active_only=active_only, limit=limit, offset=offset)
             where = "preparat REGEXP ?"
             if active_only:
                 where += " AND status = 'Действует'"
-            total_res = db.execute(f"SELECT COUNT(*) as c FROM agrokhimikaty WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql.replace("a.id", "agrokhimikaty.id")
+            total_res = db.execute(f"SELECT COUNT(*) as c FROM agrokhimikaty WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
+            if tag_ids:
+                items = db.execute(f"SELECT * FROM agrokhimikaty WHERE {where} ORDER BY preparat LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "crop":
             items = db.search_agrochemicals_by_crop(q, active_only=active_only, limit=limit, offset=offset)
             where = "ap.kultura REGEXP ?"
             if active_only:
                 where += " AND a.status = 'Действует'"
-            total_res = db.execute(f"SELECT COUNT(DISTINCT a.id) as c FROM agrokhimikaty a JOIN agrokhimikaty_primeneniya ap ON a.rn = ap.rn WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql
+            total_res = db.execute(f"SELECT COUNT(DISTINCT a.id) as c FROM agrokhimikaty a JOIN agrokhimikaty_primeneniya ap ON a.rn = ap.rn WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
+            if tag_ids:
+                items = db.execute(f"SELECT DISTINCT a.* FROM agrokhimikaty a JOIN agrokhimikaty_primeneniya ap ON a.rn = ap.rn WHERE {where} ORDER BY a.preparat LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "reg_number":
             where = "rn REGEXP ?"
             if active_only:
                 where += " AND status = 'Действует'"
-            items = db.execute(f"SELECT * FROM agrokhimikaty WHERE {where} ORDER BY preparat LIMIT {limit} OFFSET {offset}", (yo_pattern(q),))
-            total_res = db.execute(f"SELECT COUNT(*) as c FROM agrokhimikaty WHERE {where}", (yo_pattern(q),))
+            where += " " + tag_sql.replace("a.id", "agrokhimikaty.id")
+            items = db.execute(f"SELECT * FROM agrokhimikaty WHERE {where} ORDER BY preparat LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
+            total_res = db.execute(f"SELECT COUNT(*) as c FROM agrokhimikaty WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
         else:
             seen = set()
@@ -149,6 +218,20 @@ async def api_search(
             for r in db.search_agrochemicals_by_crop(q, active_only=active_only, limit=10000):
                 if r['id'] not in seen:
                     seen.add(r['id']); all_items.append(r)
+            if tag_ids:
+                tag_placeholders = ",".join(["?"] * len(tag_ids))
+                ids = [r['id'] for r in all_items]
+                if ids:
+                    id_placeholders = ",".join(["?"] * len(ids))
+                    filtered = db.execute(f"""
+                        SELECT product_id FROM product_tags
+                        WHERE product_type = 'agrochemical' AND tag_id IN ({tag_placeholders}) AND product_id IN ({id_placeholders})
+                        GROUP BY product_id HAVING COUNT(DISTINCT tag_id) >= {len(tag_ids)}
+                    """, (*tag_ids, *ids))
+                    allowed = {r['product_id'] for r in filtered}
+                    all_items = [r for r in all_items if r['id'] in allowed]
+                else:
+                    all_items = []
             total = len(all_items)
             items = all_items[offset:offset+limit]
 
@@ -182,13 +265,25 @@ async def api_product_detail(type: str = Query(...), row_id: int = Query(...)):
         if info_res and isinstance(info_res, list) and len(info_res) > 0:
             info = info_res[0]
             apps = db.find_pesticide_applications(info['nomer_reg'])
-            return {"info": info, "applications": apps}
+            tags = db.execute("""
+                SELECT t.category, t.name FROM tags t
+                JOIN product_tags pt ON pt.tag_id = t.id
+                WHERE pt.product_id = ? AND pt.product_type = 'pesticide'
+                ORDER BY t.category, t.name
+            """, (row_id,))
+            return {"info": info, "applications": apps, "tags": tags or []}
     else:
         info_res = db.execute("SELECT * FROM agrokhimikaty WHERE id = ?", (row_id,))
         if info_res and isinstance(info_res, list) and len(info_res) > 0:
             info = info_res[0]
             apps = db.find_agrochemical_applications(info['rn'])
-            return {"info": info, "applications": apps}
+            tags = db.execute("""
+                SELECT t.category, t.name FROM tags t
+                JOIN product_tags pt ON pt.tag_id = t.id
+                WHERE pt.product_id = ? AND pt.product_type = 'agrochemical'
+                ORDER BY t.category, t.name
+            """, (row_id,))
+            return {"info": info, "applications": apps, "tags": tags or []}
     return JSONResponse(status_code=404, content={"error": "Not found"})
 
 # ───────────────────────────────────────────────────────────────────────────────

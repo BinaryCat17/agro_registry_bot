@@ -58,6 +58,15 @@
     .modal h2 { margin: 0 0 4px; }
     .meta { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
     .chip { display: inline-block; padding: 4px 10px; border-radius: 999px; background: var(--card); border: 1px solid var(--border); font-size: 12px; margin: 2px 4px 2px 0; }
+    .tag-chip { display: inline-block; padding: 3px 8px; border-radius: 999px; background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.35); color: #10b981; font-size: 12px; margin: 2px 4px 2px 0; }
+    .tag-chip.method { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.35); color: #f59e0b; }
+    .tag-chip.crop { background: rgba(139,92,246,.12); border-color: rgba(139,92,246,.35); color: #8b5cf6; }
+    .tag-group { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .tag-group-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--card); cursor: pointer; font-weight: 500; }
+    .tag-group-header:hover { background: var(--panel); }
+    .tag-group-content { padding: 8px 12px; background: var(--panel); }
+    .tag-group-arrow { transition: transform 0.2s; }
+    .tag-group-arrow.open { transform: rotate(90deg); }
     .apps { display: grid; gap: 10px; margin-top: 14px; }
     .app { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
     .app-title { font-weight: 700; margin-bottom: 6px; }
@@ -82,6 +91,14 @@
     .auth-box h3 { margin: 0 0 10px; }
     .auth-box p { color: var(--muted); margin: 0 0 16px; }
     .user-bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 10px; font-size: 14px; color: var(--muted); }
+    .tag-select { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 8px 10px; border-radius: 8px; font-size: 14px; min-width: 180px; max-width: 220px; }
+    .tag-filters { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; align-items: center; }
+    .tag-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: rgba(16,185,129,.12); color: #10b981; border: 1px solid rgba(16,185,129,.35); font-size: 12px; cursor: pointer; }
+    .tag-badge:hover { background: rgba(16,185,129,.25); }
+    .tag-badge .x { font-weight: 700; opacity: .7; }
+    .tag-filter-label { color: var(--muted); font-size: 13px; }
+    .tag-badge.method { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.35); color: #f59e0b; }
+    .tag-badge.crop { background: rgba(139,92,246,.12); border-color: rgba(139,92,246,.35); color: #8b5cf6; }
   </style>
 </head>
 <body>
@@ -129,6 +146,25 @@
             Только действующие
           </label>
           <button class="btn" @click="search(1)" :disabled="loading">{{ loading ? 'Поиск...' : 'Найти' }}</button>
+        </div>
+
+        <div class="tag-filters" v-if="Object.keys(availableTags).length">
+          <span class="tag-filter-label">Фильтры по тегам:</span>
+          <select class="tag-select" v-model="tempTagClass" @change="addTag('class', tempTagClass); tempTagClass=''">
+            <option value="">— Класс препарата —</option>
+            <option v-for="t in availableTags.class" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+          <select class="tag-select" v-model="tempTagMethod" @change="addTag('method', tempTagMethod); tempTagMethod=''">
+            <option value="">— Способ применения —</option>
+            <option v-for="t in availableTags.method" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+          <select class="tag-select" v-model="tempTagCrop" @change="addTag('crop', tempTagCrop); tempTagCrop=''">
+            <option value="">— Культура —</option>
+            <option v-for="t in availableTags.crop" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+          <span v-for="t in selectedTagObjects" :key="t.id" :class="'tag-badge ' + t.category" @click="removeTag(t.id)">
+            {{ t.name }} <span class="x">×</span>
+          </span>
         </div>
 
         <div class="table-wrap">
@@ -244,6 +280,19 @@
             <span v-if="isProdljon(modalItem.info)" style="margin-left:4px;cursor:help;" :title="'В реестре указана дата ' + modalItem.info.srok_reg + ', но статус «Действует». Вероятно, регистрация продлена, но открытые данные Минсельхоза ещё не обновлены.'">ⓘ</span>
           </div>
         </div>
+        <!-- Tags -->
+        <div v-if="modalItem.tags && modalItem.tags.length" style="margin:10px 0;">
+          <strong>Теги:</strong>
+          <div v-for="(group, cat) in groupedTags(modalItem.tags)" :key="cat" class="tag-group">
+            <div class="tag-group-header" @click="toggleTagGroup(cat)">
+              <span>{{ tagCategoryTitle(cat) }}</span>
+              <span class="tag-group-arrow" :class="{open: openTagGroups[cat]}">▶</span>
+            </div>
+            <div v-if="openTagGroups[cat]" class="tag-group-content">
+              <span v-for="tag in group" :key="tag.category + tag.name" :class="'tag-chip ' + tag.category">{{ tag.name }}</span>
+            </div>
+          </div>
+        </div>
         <div v-if="modalItem.info.deystvuyushchee_veshchestvo" style="margin:10px 0;">
           <strong>Действующие вещества:</strong>
           <div style="margin-top:6px;">
@@ -288,6 +337,7 @@
           results: [],
           loading: false,
           modalItem: null,
+          openTagGroups: { class: true, method: true, crop: false },
           searchTimer: null,
           lastUpdate: null,
           page: 1,
@@ -300,7 +350,17 @@
             { role: 'bot', content: 'Привет! Я помогу найти информацию по государственному реестру пестицидов и агрохимикатов.\n\nПримеры вопросов:\n• «Абакус Прайм»\n• «Пестициды для пшеницы озимой»\n• «От колорадского жука»' }
           ],
           chatInput: '',
-          chatLoading: false
+          chatLoading: false,
+          availableTags: {},
+          selectedTags: {},
+          tempTagClass: '',
+          tempTagMethod: '',
+          tempTagCrop: ''
+        }
+      },
+      computed: {
+        selectedTagObjects() {
+          return Object.values(this.selectedTags);
         }
       },
       methods: {
@@ -308,12 +368,33 @@
           this.loading = true;
           this.page = page;
           try {
-            const r = await fetch(`/api/search?type=${this.stype}&field=${this.sfield}&q=${encodeURIComponent(this.query)}&page=${page}&limit=${this.limit}&active_only=${this.activeOnly}`);
+            const tagIds = Object.keys(this.selectedTags).join(',');
+            const r = await fetch(`/api/search?type=${this.stype}&field=${this.sfield}&q=${encodeURIComponent(this.query)}&page=${page}&limit=${this.limit}&active_only=${this.activeOnly}&tags=${encodeURIComponent(tagIds)}`);
             const d = await r.json();
             this.results = d.items || [];
             this.total = d.total || 0;
           } catch (e) { console.error(e); }
           this.loading = false;
+        },
+        async loadTags() {
+          try {
+            const r = await fetch(`/api/tags?type=${this.stype}`);
+            this.availableTags = await r.json();
+          } catch (e) { console.error(e); }
+        },
+        addTag(category, id) {
+          if (!id) return;
+          const idNum = String(id);
+          if (this.selectedTags[idNum]) return;
+          const tag = (this.availableTags[category] || []).find(t => String(t.id) === idNum);
+          if (tag) {
+            this.selectedTags[idNum] = { ...tag, category };
+            this.search(1);
+          }
+        },
+        removeTag(id) {
+          delete this.selectedTags[String(id)];
+          this.search(1);
         },
         async openModal(item) {
           const type = this.stype === 'pesticides' ? 'pesticide' : 'agrochemical';
@@ -322,6 +403,37 @@
             const d = await r.json();
             this.modalItem = { type, ...d };
           } catch (e) { console.error(e); }
+        },
+        groupedTags(tags) {
+          const groups = {};
+          for (const t of tags) {
+            if (!groups[t.category]) groups[t.category] = [];
+            groups[t.category].push(t);
+          }
+          // Sort categories: class, method, crop
+          const order = { class: 1, method: 2, crop: 3 };
+          const sorted = {};
+          for (const cat of Object.keys(groups).sort((a, b) => (order[a] || 99) - (order[b] || 99))) {
+            // Remove duplicate tag names within category
+            const seen = new Set();
+            sorted[cat] = groups[cat].filter(t => {
+              if (seen.has(t.name)) return false;
+              seen.add(t.name);
+              return true;
+            });
+          }
+          return sorted;
+        },
+        tagCategoryTitle(cat) {
+          const titles = {
+            class: 'Класс препарата',
+            method: 'Способ применения',
+            crop: 'Культуры'
+          };
+          return titles[cat] || cat;
+        },
+        toggleTagGroup(cat) {
+          this.openTagGroups[cat] = !this.openTagGroups[cat];
         },
         formatDV(v) {
           if (!v) return '-';
@@ -409,7 +521,12 @@
         }
       },
       watch: {
-        stype() { this.sfield = 'all'; this.search(1); },
+        stype() {
+          this.sfield = 'all';
+          this.selectedTags = {};
+          this.loadTags();
+          this.search(1);
+        },
         sfield() { this.search(1); },
         activeOnly() { this.search(1); },
         query(newVal, oldVal) {
@@ -418,6 +535,7 @@
         }
       },
       mounted() {
+        this.loadTags();
         this.search(1);
         this.checkAuth();
         fetch('/api/last-update')
