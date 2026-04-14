@@ -29,6 +29,13 @@ def yo_pattern(p: str):
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "reestr.db")
 db = RegistryDatabase(db_path=DB_PATH)
 
+# Direct sqlite connection for raw queries
+import sqlite3
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
 app = FastAPI(title="АгроРеестр AI", description="Поиск по государственному реестру пестицидов и агрохимикатов")
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "change-me-secret"), max_age=3600*24*7)
 
@@ -69,21 +76,33 @@ def _tag_filter_sql(table_alias: str, product_type: str, tag_ids: list):
 def _crop_group_filter_sql(table_alias: str, product_type: str, crop_group_id: int):
     if not crop_group_id:
         return "", []
-    return f"""AND EXISTS (
+    
+    # Get crop group name from DB using direct sqlite connection
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT name FROM tags WHERE id = ? AND category = 'crop_group'", (crop_group_id,)).fetchone()
+        if not row:
+            return "", []
+        
+        group_name = row['name']
+        allowed_crops = CROP_HIERARCHY.get(group_name, [])
+        
+        if not allowed_crops:
+            return "", []
+        
+        # Build IN clause with escaped crop names
+        placeholders = ','.join(['?' for _ in allowed_crops])
+        
+        return f"""AND EXISTS (
         SELECT 1 FROM product_tags pt_c
         JOIN tags t_c ON t_c.id = pt_c.tag_id
         WHERE pt_c.product_id = {table_alias}.id
           AND pt_c.product_type = '{product_type}'
           AND t_c.category = 'crop'
-          AND EXISTS (
-              SELECT 1 FROM product_tags pt_g
-              JOIN tags t_g ON t_g.id = pt_g.tag_id
-              WHERE pt_g.product_id = pt_c.product_id
-                AND pt_g.product_type = pt_c.product_type
-                AND t_g.category = 'crop_group'
-                AND t_g.id = {crop_group_id}
-          )
-    )""", []
+          AND t_c.name IN ({placeholders})
+    )""", list(allowed_crops)
+    finally:
+        conn.close()
 
 @app.get("/api/tags")
 async def api_tags(type: str = Query("pesticides", regex="^(pesticides|agrochemicals)$")):
@@ -214,14 +233,32 @@ async def api_search(
             all_items = []
             # Special case: empty query with filters - get all matching products directly
             if not q and (tag_ids or crop_group_id):
-                # Get all products with the specified crop_group
+                # Get all products with the specified crop_group using CROP_HIERARCHY
                 if crop_group_id:
-                    rows = db.execute("""
-                        SELECT DISTINCT p.* FROM pestitsidy p
-                        JOIN product_tags pt ON pt.product_id = p.id AND pt.product_type = 'pesticide'
-                        WHERE pt.tag_id = ?
-                    """, (crop_group_id,))
-                    all_items = rows
+                    import sqlite3
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.row_factory = sqlite3.Row
+                    try:
+                        # Get group name and allowed crops
+                        row = conn.execute("SELECT name FROM tags WHERE id = ? AND category = 'crop_group'", (crop_group_id,)).fetchone()
+                        if row:
+                            group_name = row['name']
+                            allowed_crops = CROP_HIERARCHY.get(group_name, [])
+                            if allowed_crops:
+                                placeholders = ','.join(['?' for _ in allowed_crops])
+                                rows = conn.execute(f"""
+                                    SELECT DISTINCT p.* FROM pestitsidy p
+                                    JOIN product_tags pt ON pt.product_id = p.id AND pt.product_type = 'pesticide'
+                                    JOIN tags t ON t.id = pt.tag_id
+                                    WHERE t.category = 'crop' AND t.name IN ({placeholders})
+                                """, list(allowed_crops)).fetchall()
+                                all_items = [dict(r) for r in rows]
+                            else:
+                                all_items = []
+                        else:
+                            all_items = []
+                    finally:
+                        conn.close()
                 else:
                     # Just get all products for tag filtering
                     rows = db.execute("SELECT * FROM pestitsidy")
@@ -310,14 +347,32 @@ async def api_search(
             all_items = []
             # Special case: empty query with filters - get all matching products directly
             if not q and (tag_ids or crop_group_id):
-                # Get all products with the specified crop_group
+                # Get all products with the specified crop_group using CROP_HIERARCHY
                 if crop_group_id:
-                    rows = db.execute("""
-                        SELECT DISTINCT a.* FROM agrokhimikaty a
-                        JOIN product_tags pt ON pt.product_id = a.id AND pt.product_type = 'agrochemical'
-                        WHERE pt.tag_id = ?
-                    """, (crop_group_id,))
-                    all_items = rows
+                    import sqlite3
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.row_factory = sqlite3.Row
+                    try:
+                        # Get group name and allowed crops
+                        row = conn.execute("SELECT name FROM tags WHERE id = ? AND category = 'crop_group'", (crop_group_id,)).fetchone()
+                        if row:
+                            group_name = row['name']
+                            allowed_crops = CROP_HIERARCHY.get(group_name, [])
+                            if allowed_crops:
+                                placeholders = ','.join(['?' for _ in allowed_crops])
+                                rows = conn.execute(f"""
+                                    SELECT DISTINCT a.* FROM agrokhimikaty a
+                                    JOIN product_tags pt ON pt.product_id = a.id AND pt.product_type = 'agrochemical'
+                                    JOIN tags t ON t.id = pt.tag_id
+                                    WHERE t.category = 'crop' AND t.name IN ({placeholders})
+                                """, list(allowed_crops)).fetchall()
+                                all_items = [dict(r) for r in rows]
+                            else:
+                                all_items = []
+                        else:
+                            all_items = []
+                    finally:
+                        conn.close()
                 else:
                     # Just get all products for tag filtering
                     rows = db.execute("SELECT * FROM agrokhimikaty")
