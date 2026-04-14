@@ -21,15 +21,23 @@ cur.execute("DELETE FROM tags WHERE category = 'crop'")
 print(f'Deleted {cur.rowcount} crop tags')
 conn.commit()
 
-# Step 2: Build app_id -> product_id mappings
-app_to_pid = {}
+# Step 2: Build app_id -> product_id mappings (handle multiple products per reg number)
+app_to_pids = {}  # (product_type, app_id) -> set of product_ids
+# For pesticides
 cur.execute('SELECT pp.id, p.id FROM pestitsidy_primeneniya pp JOIN pestitsidy p ON p.nomer_reg = pp.nomer_reg')
 for app_id, pid in cur.fetchall():
-    app_to_pid[('pesticide', app_id)] = pid
+    key = ('pesticide', app_id)
+    if key not in app_to_pids:
+        app_to_pids[key] = set()
+    app_to_pids[key].add(pid)
+# For agrochemicals
 cur.execute('SELECT ap.id, a.id FROM agrokhimikaty_primeneniya ap JOIN agrokhimikaty a ON a.rn = ap.rn')
 for app_id, pid in cur.fetchall():
-    app_to_pid[('agrochemical', app_id)] = pid
-print(f'Built {len(app_to_pid)} app->pid mappings')
+    key = ('agrochemical', app_id)
+    if key not in app_to_pids:
+        app_to_pids[key] = set()
+    app_to_pids[key].add(pid)
+print(f'Built {len(app_to_pids)} app->pids mappings')
 
 # Step 3: Extract crops from all applications
 crop_products = set()  # (crop_name, product_type, product_id)
@@ -46,8 +54,8 @@ for table, ptype, id_col in [
         crops = extract_crops(kultura)
         if not crops:
             continue
-        pid = app_to_pid.get((ptype, app_id))
-        if pid:
+        pids = app_to_pids.get((ptype, app_id), set())
+        for pid in pids:
             for crop in crops:
                 crop_products.add((crop, ptype, pid))
 
