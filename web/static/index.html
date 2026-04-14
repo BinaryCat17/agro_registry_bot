@@ -158,10 +158,23 @@
             <option value="">— Способ применения —</option>
             <option v-for="t in availableTags.method" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
-          <select class="tag-select" v-model="tempTagCrop" @change="addTag('crop', tempTagCrop); tempTagCrop=''">
-            <option value="">— Культура —</option>
-            <option v-for="t in availableTags.crop" :key="t.id" :value="t.id">{{ t.name }}</option>
+          
+          <!-- Hierarchical crop selection -->
+          <select class="tag-select" v-model="tempCropGroup" @change="onCropGroupChange()">
+            <option value="">— Категория культур —</option>
+            <option v-for="g in availableTags.crop_hierarchy" :key="g.group_id" :value="g.group_id">{{ g.group_name }}</option>
           </select>
+          <select class="tag-select" v-model="tempTagCrop" @change="addTag('crop', tempTagCrop); tempTagCrop=''" :disabled="!tempCropGroup">
+            <option value="">— Культура —</option>
+            <option v-for="t in availableCropsInGroup" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+          <button v-if="tempCropGroup && availableCropsInGroup.length" 
+                  class="btn btn-secondary" 
+                  style="padding: 8px 12px; font-size: 13px;"
+                  @click="addAllCropsInGroup()">
+            Все: {{ getGroupName(tempCropGroup) }}
+          </button>
+          
           <span v-for="t in selectedTagObjects" :key="t.id" :class="'tag-badge ' + t.category" @click="removeTag(t.id)">
             {{ t.name }} <span class="x">×</span>
           </span>
@@ -355,12 +368,18 @@
           selectedTags: {},
           tempTagClass: '',
           tempTagMethod: '',
+          tempCropGroup: '',
           tempTagCrop: ''
         }
       },
       computed: {
         selectedTagObjects() {
           return Object.values(this.selectedTags);
+        },
+        availableCropsInGroup() {
+          if (!this.tempCropGroup || !this.availableTags.crop_hierarchy) return [];
+          const group = this.availableTags.crop_hierarchy.find(g => String(g.group_id) === String(this.tempCropGroup));
+          return group ? group.crops : [];
         }
       },
       methods: {
@@ -386,11 +405,49 @@
           if (!id) return;
           const idNum = String(id);
           if (this.selectedTags[idNum]) return;
-          const tag = (this.availableTags[category] || []).find(t => String(t.id) === idNum);
+          let tag = null;
+          if (category === 'crop') {
+            // Find in hierarchical structure
+            for (const g of (this.availableTags.crop_hierarchy || [])) {
+              tag = g.crops.find(t => String(t.id) === idNum);
+              if (tag) break;
+            }
+          } else {
+            tag = (this.availableTags[category] || []).find(t => String(t.id) === idNum);
+          }
           if (tag) {
             this.selectedTags[idNum] = { ...tag, category };
             this.search(1);
           }
+        },
+        onCropGroupChange() {
+          this.tempTagCrop = '';
+        },
+        getGroupName(groupId) {
+          if (!groupId || !this.availableTags.crop_hierarchy) return '';
+          const group = this.availableTags.crop_hierarchy.find(g => String(g.group_id) === String(groupId));
+          return group ? group.group_name : '';
+        },
+        addAllCropsInGroup() {
+          if (!this.tempCropGroup) return;
+          const group = this.availableTags.crop_hierarchy.find(g => String(g.group_id) === String(this.tempCropGroup));
+          if (!group || !group.crops.length) return;
+          
+          // Add all crops from this group
+          let added = 0;
+          for (const crop of group.crops) {
+            const idNum = String(crop.id);
+            if (!this.selectedTags[idNum]) {
+              this.selectedTags[idNum] = { ...crop, category: 'crop' };
+              added++;
+            }
+          }
+          if (added > 0) {
+            this.search(1);
+          }
+          // Reset selection
+          this.tempCropGroup = '';
+          this.tempTagCrop = '';
         },
         removeTag(id) {
           delete this.selectedTags[String(id)];
@@ -524,6 +581,8 @@
         stype() {
           this.sfield = 'all';
           this.selectedTags = {};
+          this.tempCropGroup = '';
+          this.tempTagCrop = '';
           this.loadTags();
           this.search(1);
         },

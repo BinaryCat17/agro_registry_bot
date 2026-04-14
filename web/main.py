@@ -82,6 +82,42 @@ async def api_tags(type: str = Query("pesticides", regex="^(pesticides|agrochemi
         if cat not in result:
             result[cat] = []
         result[cat].append({"id": r['id'], "name": r['name']})
+    
+    # Add hierarchical crop groups structure
+    if 'crop' in result or 'crop_group' in result:
+        result['crop_hierarchy'] = []
+        
+        # Get all crop groups
+        group_rows = db.execute("""
+            SELECT t.id, t.name FROM tags t
+            WHERE t.category = 'crop_group' AND t.name != 'все культуры'
+            ORDER BY t.name
+        """)
+        
+        for group_row in group_rows:
+            # Get crops that belong to this group
+            crop_rows = db.execute("""
+                SELECT DISTINCT t.id, t.name FROM tags t
+                JOIN product_tags pt ON pt.tag_id = t.id AND pt.product_type = ?
+                WHERE t.category = 'crop'
+                AND EXISTS (
+                    SELECT 1 FROM product_tags pt2
+                    JOIN tags t2 ON t2.id = pt2.tag_id
+                    WHERE pt2.product_id = pt.product_id 
+                    AND pt2.product_type = pt.product_type
+                    AND t2.category = 'crop_group' AND t2.id = ?
+                )
+                ORDER BY t.name
+            """, (product_type, group_row['id']))
+            
+            crops = [{"id": r['id'], "name": r['name']} for r in crop_rows]
+            if crops:
+                result['crop_hierarchy'].append({
+                    "group_id": group_row['id'],
+                    "group_name": group_row['name'],
+                    "crops": crops
+                })
+    
     return result
 
 @app.get("/api/search")
