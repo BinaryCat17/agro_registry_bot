@@ -8,173 +8,16 @@ import sqlite3
 import sys
 sys.path.insert(0, '/root/.openclaw/workspace/agro_registry_bot')
 
-# Hierarchy definition: category -> list of crops belonging to it
-CROP_HIERARCHY = {
-    'зерновые': [
-        'пшеница', 'пшеница яровая', 'пшеница озимая',
-        'ячмень', 'ячмень яровой', 'ячмень озимый',
-        'рожь', 'рожь озимая', 'рожь яровая',
-        'овес', 'овес яровой', 'овес озимый',
-        'гречиха', 'просо', 'просо кормовое', 'сорго', 'рис',
-        'тритикале', 'полба', 'кукуруза', 'лен-долгунец'
-    ],
-    'масличные': [
-        'подсолнечник', 'рапс', 'рапс яровой', 'рапс озимый',
-        'соя', 'лен масличный', 'горчица', 'сафлор', 'клещевина',
-        'расторопша пятнистая'
-    ],
-    'бобовые': [
-        'горох', 'горох овощной', 'нут', 'фасоль', 'чечевица',
-        'чечевица обыкновенная', 'люпин', 'люпин однолетний',
-        'люпин желтый', 'люпин желтый кормовой', 'вика', 'чина',
-        'кормовые бобы', 'зеленый горошек', 'горошек овощной',
-        'соя'  # соя относится и к масличным, и к бобовым
-    ],
-    'клубнеплоды': [
-        'картофель', 'топинамбур'
-    ],
-    'овощные': [
-        'томат', 'томат рассадный', 'томаты рассадные',
-        'огурец', 'перец', 'перец сладкий', 'баклажан',
-        'капуста', 'капуста белокочанная', 'капуста пекинская',
-        'капуста кочанная', 'капуста белокочанная рассадная',
-        'капуста рассадная', 'брокколи', 'кольраби',
-        'морковь', 'свекла столовая', 'редис', 'редька',
-        'репа', 'турнепс', 'брюква', 'дайкон',
-        'лук', 'лук репчатый', 'лук-репка', 'лук репка',
-        'лук всех генераций', 'лук-чернушка', 'лук чернушка',
-        'лук-севок', 'лук севок', 'чеснок', 'чеснок яровой',
-        'тыква', 'кабачок', 'патиссон', 'шпинат',
-        'салат', 'салат-латук листовой', 'салат листовой',
-        'сельдерей', 'сельдерей корневой',
-        'петрушка', 'петрушка корневая', 'укроп', 'хрен',
-        'спаржа', 'бобовые овощные',
-        # Добавленные:
-        'арбуз', 'дыня', 'кориандр', 'мята перечная',
-        'пастернак', 'капуста: белокочанная', 'овощн'
-    ],
-    'плодовые': [
-        'яблоня', 'груша', 'айва',
-        'вишня', 'вишня войлочная', 'черешня',
-        'слива', 'алыча', 'абрикос', 'персик', 'нектарин',
-        'виноград', 'киви', 'инжир', 'гранат', 'финик',
-        'банан', 'кокос',
-        # Добавленные:
-        'хурма', 'кофе', 'минеола'
-    ],
-    'ягодные': [
-        'земляника', 'земляника садовая', 'клубника',
-        'малина', 'ежевика', 'малинно-ежевичный гибрид',
-        'смородина', 'крыжовник', 'облепиха',
-        'голубика', 'черника', 'брусника', 'клюква',
-        'рябина', 'рябина черноплодная', 'арония',
-        'жимолость', 'ирга',
-        # Добавленные:
-        'ежа сборная', 'терн', 'шиповник'
-    ],
-    'цитрусовые': [
-        'мандарин', 'лимон', 'апельсин', 'грейпфрут', 'лайм', 'помело'
-    ],
-    'орехи': [
-        'фундук', 'миндаль', 'миндаль трехлопастный', 'грецкий орех', 'фисташка', 'кешью'
-    ],
-    'технические': [
-        'свекла сахарная', 'хлопчатник', 'конопля', 'кенаф',
-        'табак', 'лен технический',
-        # Добавленные:
-        'лен', 'хмель'
-    ],
-    'кормовые': [
-        'люцерна', 'люцерна старовозрастная',
-        'клевер', 'клевер ползучий', 'клевер полевой',
-        'тимофеевка луговая', 'овсяница луговая',
-        'кострец безостый', 'костер безостый',
-        'эспарцет', 'райграс однолетний',
-        'трава суданская', 'суданская трава',
-        'свекла кормовая', 'кормовые бобы',
-        'просо кормовое', 'кукуруза на силос',
-        # Добавленные:
-        'газон', 'донник', 'козлятник', 'фестулолиум'
-    ],
-    'декоративные': [
-        'роза', 'гладиолус', 'тюльпан', 'гвоздика',
-        'хризантема', 'хризантема корейская',
-        'герань', 'пеларгония', 'бегония', 'фиалка',
-        'орхидея', 'фуксия', 'альоказия', 'драцена',
-        'шефлера', 'монстера', 'юкка', 'фикус', 'фикус бенджамина',
-        'кактус', 'суккулент', 'пальма', 'саговые пальмы', 'са-говник',
-        'лаванда', 'гортензия', 'гортензия крупнолистная',
-        'жасмин', 'сирень', 'рододендрон', 'азалия',
-        'камелия', 'гардения', 'антуриум',
-        'бальзамин', 'бальзамин новогвинейский',
-        'гиацинт', 'нарцисс', 'крокус', 'георгин',
-        'фрезия', 'гербера', 'гелениум',
-        'алое', 'аланга', 'амариллис', 'антуриум',
-        'аралия', 'арония', 'аспарагус', 'аспидистра',
-        'аукуба', 'барбарис', 'барбарис тунберга', 'барбарис обыкновенный',
-        'бегония', 'бересклет', 'бирючина',
-        'вереск', 'дейция шершавая', 'душица обыкновенная',
-        'ипомея', 'калла', 'кампанула', 'каланхоэ',
-        'клематис', 'кливия', 'молочай', 'мирт',
-        'плющ', 'самшит', 'сенполия', 'сенполия фиалковая',
-        'традесканция', 'фатсия', 'фитония', 'форзиция',
-        'хамеропс', 'ховея', 'цикламен', 'цинерария',
-        'шалфей мускатный', 'эхинацея пурпурная',
-        'пустырник сердечный', 'змееголовник молдавский',
-        'мелисса лекарственная', 'валериана лекарственная',
-        'наперстянка шерстистая', 'ноготки лекарственные',
-        # Добавленные:
-        'агава', 'алоказия', 'алоэ', 'араукария',
-        'глоксиния', 'диффенбахия', 'женьшень',
-        'кипарисовик горохоплодный', 'кокос ведделя', 'кротон',
-        'лен-кудряш', 'можжевельник', 'можжевельник сибирский',
-        'паслен дольчатый', 'пиретрум девичий', 'платицериум',
-        'рапис', 'рипсалис', 'росянка', 'сакура', 'сансевьера',
-        'саркокаулон вандериета', 'сингониум', 'тапиока',
-        'туя западная', 'циперус', 'чубушник',
-        'газон'  # газон тоже декоративный
-    ],
-    'лесные': [
-        'сосна', 'сосна обыкновенная', 'сосна крымская',
-        'ель', 'ель обыкновенная', 'ель колючая', 'ель голубая', 'ель европейская',
-        'пихта', 'пихта кавказская',
-        'кедр', 'кедр сибирский', 'кедр корейский',
-        'дуб', 'береза', 'липа', 'лиственница', 'лиственница сибирская',
-        'осина', 'тополь', 'клен', 'ясень', 'ольха',
-        # Добавленные:
-        'лиственных пород', 'лиственных пород деревьев',
-        'кипарисовик горохоплодный', 'можжевельник', 'можжевельник сибирский',
-        'туя западная'
-    ],
-    'сорняки_вредные_объекты': [
-        'дикая растительность',
-        'очаги распространения горчака ползучего',
-        'сурепка', 'сурепица'
-    ],
-    'нежилые_помещения': [
-        'нежилыми помещениями'
-    ],
-    'прочие': [
-        # Всё что не подошло в другие категории
-        'клоновый подвой', 'копра', 'кото',
-        'мака перуанская', 'маклея сердцевидная',
-        'их дос', 'их досмо', 'жим',
-        'посадку картофеля', 'посадочный материал',
-        'свекла', 'очиток'
-    ]
-}
+# Import hierarchy from centralized module
+from src.crop_hierarchy import CROP_HIERARCHY, get_crop_groups
 
-# Special multi-category crops (belong to multiple groups)
-MULTI_CATEGORY = {
-    'соя': ['масличные', 'бобовые'],
-    'кукуруза': ['зерновые', 'кормовые'],
-}
+DB_PATH = '/root/.openclaw/workspace/agro_registry_bot/data/reestr.db'
 
 
 def main():
-    db = sqlite3.connect('data/reestr.db')
-    db.row_factory = sqlite3.Row
-    c = db.cursor()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
     
     # Get or create tag function
     def get_tag_id(cat, name):
@@ -184,128 +27,104 @@ def main():
     
     def add_tag(cat, name):
         c.execute('INSERT INTO tags (category, name) VALUES (?, ?)', (cat, name))
-        db.commit()
+        conn.commit()
         return c.lastrowid
     
-    # First, delete old crop_group tags
-    c.execute("SELECT id FROM tags WHERE category = 'crop_group'")
-    old_ids = [r[0] for r in c.fetchall()]
-    if old_ids:
-        placeholders = ','.join(['?' for _ in old_ids])
-        c.execute(f"DELETE FROM product_tags WHERE tag_id IN ({placeholders})", old_ids)
-        c.execute(f"DELETE FROM tags WHERE id IN ({placeholders})", old_ids)
-        db.commit()
-        print(f"Cleaned {len(old_ids)} old crop_group tags")
+    # Ensure all crop_group tags exist
+    group_to_id = {}
+    for group_name in CROP_HIERARCHY.keys():
+        tid = get_tag_id('crop_group', group_name)
+        if not tid:
+            tid = add_tag('crop_group', group_name)
+            print(f"Created tag: crop_group = {group_name} (id={tid})")
+        group_to_id[group_name] = tid
+    
+    # Also ensure 'все культуры' tag exists
+    tid = get_tag_id('crop_group', 'все культуры')
+    if not tid:
+        tid = add_tag('crop_group', 'все культуры')
+        print(f"Created tag: crop_group = все культуры (id={tid})")
+    group_to_id['все культуры'] = tid
     
     # Get all crop tags
     c.execute("SELECT id, name FROM tags WHERE category = 'crop'")
     crop_tags = {row['name']: row['id'] for row in c.fetchall()}
     
-    print(f"Found {len(crop_tags)} crop tags")
-    
-    # Build reverse mapping: crop -> groups
+    # Build reverse mapping: crop name -> list of group IDs
     crop_to_groups = {}
-    for group, crops in CROP_HIERARCHY.items():
-        for crop in crops:
-            if crop not in crop_to_groups:
-                crop_to_groups[crop] = []
-            crop_to_groups[crop].append(group)
+    for group_name, crops in CROP_HIERARCHY.items():
+        group_id = group_to_id[group_name]
+        for crop_name in crops:
+            if crop_name not in crop_to_groups:
+                crop_to_groups[crop_name] = []
+            crop_to_groups[crop_name].append(group_id)
     
-    # Add multi-category mappings
-    for crop, groups in MULTI_CATEGORY.items():
-        if crop not in crop_to_groups:
-            crop_to_groups[crop] = []
-        for g in groups:
-            if g not in crop_to_groups[crop]:
-                crop_to_groups[crop].append(g)
-    
-    # Get all product-crop relationships
-    c.execute('''
-        SELECT pt.product_id, pt.product_type, t.name as crop_name
+    # Get all products with crop tags
+    c.execute("""
+        SELECT DISTINCT pt.product_id, pt.product_type, t.name as crop_name, t.id as crop_id
         FROM product_tags pt
         JOIN tags t ON t.id = pt.tag_id
         WHERE t.category = 'crop'
-    ''')
+    """)
     
-    inserts = []
+    assignments = {}  # (product_id, product_type, group_id) -> count
     unclassified = set()
-    classified_count = 0
     
     for row in c.fetchall():
         product_id = row['product_id']
         product_type = row['product_type']
         crop_name = row['crop_name']
         
-        groups = crop_to_groups.get(crop_name)
-        if groups:
-            for group in groups:
-                tid = get_tag_id('crop_group', group)
-                if tid is None:
-                    tid = add_tag('crop_group', group)
-                inserts.append((product_id, product_type, tid))
-            classified_count += 1
+        # Add to 'все культуры' group
+        all_crops_id = group_to_id['все культуры']
+        key = (product_id, product_type, all_crops_id)
+        assignments[key] = assignments.get(key, 0) + 1
+        
+        # Add to specific groups
+        if crop_name in crop_to_groups:
+            for group_id in crop_to_groups[crop_name]:
+                key = (product_id, product_type, group_id)
+                assignments[key] = assignments.get(key, 0) + 1
         else:
             unclassified.add(crop_name)
     
-    # Add "все культуры" to all products with any crop
-    c.execute('''
-        SELECT DISTINCT pt.product_id, pt.product_type
-        FROM product_tags pt
-        JOIN tags t ON t.id = pt.tag_id
-        WHERE t.category = 'crop'
-    ''')
+    # Clear existing crop_group assignments
+    c.execute("DELETE FROM product_tags WHERE tag_id IN (SELECT id FROM tags WHERE category = 'crop_group')")
+    conn.commit()
     
-    all_crops_id = get_tag_id('crop_group', 'все культуры')
-    if all_crops_id is None:
-        all_crops_id = add_tag('crop_group', 'все культуры')
+    # Insert new assignments
+    total = 0
+    for (product_id, product_type, group_id), count in assignments.items():
+        try:
+            c.execute(
+                "INSERT INTO product_tags (product_id, product_type, tag_id) VALUES (?, ?, ?)",
+                (product_id, product_type, group_id)
+            )
+            total += 1
+        except sqlite3.IntegrityError:
+            pass  # Skip duplicates
     
-    for row in c.fetchall():
-        inserts.append((row['product_id'], row['product_type'], all_crops_id))
+    conn.commit()
     
-    # Add "прочие" for unclassified crops
-    if unclassified:
-        other_id = get_tag_id('crop_group', 'прочие')
-        if other_id is None:
-            other_id = add_tag('crop_group', 'прочие')
-        
-        c.execute('''
-            SELECT DISTINCT pt.product_id, pt.product_type
-            FROM product_tags pt
-            JOIN tags t ON t.id = pt.tag_id
-            WHERE t.category = 'crop' AND t.name IN ({})
-        '''.format(','.join(['?' for _ in unclassified])), list(unclassified))
-        
-        for row in c.fetchall():
-            inserts.append((row['product_id'], row['product_type'], other_id))
+    print(f"\n=== Summary ===")
+    print(f"Total crop_group assignments: {total}")
+    print(f"Unclassified crops ({len(unclassified)}):")
+    for crop in sorted(unclassified):
+        print(f"  - {crop}")
     
-    # Bulk insert
-    c.executemany('''
-        INSERT OR IGNORE INTO product_tags (product_id, product_type, tag_id)
-        VALUES (?, ?, ?)
-    ''', inserts)
-    db.commit()
+    # Print group statistics
+    print(f"\n=== Group Statistics ===")
+    for group_name in sorted(CROP_HIERARCHY.keys()):
+        group_id = group_to_id[group_name]
+        c.execute("""
+            SELECT COUNT(DISTINCT product_id) 
+            FROM product_tags 
+            WHERE tag_id = ? AND product_type = 'pesticide'
+        """, (group_id,))
+        count = c.fetchone()[0]
+        print(f"  {group_name}: {count} products")
     
-    print(f"\nClassification complete:")
-    print(f"  - Crops classified: {classified_count}")
-    print(f"  - Unclassified crops: {len(unclassified)}")
-    if unclassified:
-        print(f"  - Unclassified list: {sorted(unclassified)}")
-    print(f"  - Total group assignments: {len(inserts)}")
-    
-    # Show group distribution
-    print("\nGroup distribution:")
-    c.execute('''
-        SELECT t.name, COUNT(DISTINCT pt.product_id) as cnt
-        FROM product_tags pt
-        JOIN tags t ON t.id = pt.tag_id
-        WHERE t.category = 'crop_group'
-        GROUP BY t.name
-        ORDER BY cnt DESC
-    ''')
-    for row in c.fetchall():
-        print(f"  {row['name']}: {row['cnt']}")
-    
-    db.close()
+    conn.close()
 
 
 if __name__ == '__main__':
