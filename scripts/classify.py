@@ -1,6 +1,9 @@
 import sqlite3
 import json
 import re
+import sys
+sys.path.insert(0, '/root/.openclaw/workspace/agro_registry_bot')
+from src.crop_parser import extract_crops
 
 # Connect to DB
 db = sqlite3.connect('data/reestr.db')
@@ -728,11 +731,8 @@ def classify_pesticide(product_id, name, dv_json, apps):
     
     # Add specific crop tags - split compound entries
     for crop_raw in all_crops:
-        # Split by comma, semicolon, and ' и '
-        for crop_part in re.split(r'[,;]|\s+и\s+', crop_raw):
-            crop_clean = crop_part.strip().lower().rstrip('.,;')
-            if is_valid_crop_tag(crop_clean):
-                tags.add(('crop', crop_clean))
+        for crop_clean in extract_crops(crop_raw):
+            tags.add(('crop', crop_clean))
     
     # Classify by pests
     has_fungal = any(kw in pests_text for kw in FUNGAL_KEYWORDS)
@@ -897,11 +897,8 @@ def classify_agrochemical(product_id, name, dv_json, apps):
     
     # Add specific crop tags - split compound entries
     for crop_raw in all_crops:
-        # Split by comma, semicolon, and ' и '
-        for crop_part in re.split(r'[,;]|\s+и\s+', crop_raw):
-            crop_clean = crop_part.strip().lower().rstrip('.,;')
-            if is_valid_crop_tag(crop_clean):
-                tags.add(('crop', crop_clean))
+        for crop_clean in extract_crops(crop_raw):
+            tags.add(('crop', crop_clean))
     
     # Method tags
     for pattern, method_tag in METHOD_RULES:
