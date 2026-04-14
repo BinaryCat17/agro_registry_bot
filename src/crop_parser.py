@@ -1,5 +1,43 @@
 import re
 
+# Специальные категории (маппинг паттернов → теги)
+SPECIAL_CATEGORIES = {
+    'земли несельхоз': 'земли несельхозназначения',
+    'земли несельскохоз': 'земли несельхозназначения',
+    'несельхоз': 'земли несельхозназначения',
+    'несельскохоз': 'земли несельхозназначения',
+    'пары': 'пары',
+    'пар ': 'пары',
+    'пар,': 'пары',
+    'паровые': 'пары',
+    'вырубки': 'вырубки разной давности',
+    'пустые погреба': 'нежилые помещения',
+    'подвалы': 'нежилые помещения',
+    'чердаки': 'нежилые помещения',
+    'все культуры': 'все культуры открытого грунта',
+    'все виды культур': 'все культуры открытого грунта',
+}
+
+# Паттерны для извлечения из сложных описаний
+PATTERNS = {
+    'зерновые колосовые': ['пшеница', 'ячмень', 'рожь', 'овес', 'тритикале', 'гречиха', 'просо'],
+    'зерновые': ['пшеница', 'ячмень', 'рожь', 'овес', 'тритикале', 'гречиха', 'просо', 'рис'],
+}
+
+# Культуры которые нужно добавить при специальных паттернах
+SPECIAL_CROP_ADDITIONS = {
+    'все культуры открытого грунта': ['пшеница', 'ячмень', 'рожь', 'овес', 'тритикале', 'гречиха', 
+                                       'просо', 'рис', 'кукуруза', 'подсолнечник', 'рапс', 'соя',
+                                       'горох', 'фасоль', 'нут', 'чечевица', 'люпин', 'вика',
+                                       'картофель', 'томат', 'огурец', 'перец', 'баклажан', 'капуста',
+                                       'морковь', 'свекла столовая', 'лук репчатый', 'чеснок',
+                                       'тыква', 'кабачок', 'яблоня', 'груша', 'вишня', 'слива',
+                                       'абрикос', 'персик', 'виноград', 'земляника', 'малина',
+                                       'смородина', 'крыжовник'],
+    'плодово-ягодные': ['яблоня', 'груша', 'вишня', 'слива', 'абрикос', 'персик', 'виноград',
+                        'земляника', 'малина', 'смородина', 'крыжовник', 'ежевика', 'облепиха'],
+}
+
 # Маппинг множественного числа → единственное
 PLURAL_MAP = {
     'апельсины': 'апельсин',
@@ -488,12 +526,65 @@ def is_valid_crop_tag(name):
     return True
 
 
-def extract_crops(kultura_string):
+def extract_special_categories(kultura_string):
+    """Извлекает специальные категории из строки культуры."""
     if not kultura_string:
         return []
+    
+    cleaned = clean_crop_string(kultura_string)
+    categories = []
+    additional_crops = []
+    
+    # Проверяем специальные паттерны
+    for pattern, category in SPECIAL_CATEGORIES.items():
+        if pattern in cleaned:
+            categories.append(category)
+    
+    # Проверяем "все культуры"
+    if 'все культуры' in cleaned or 'все виды культур' in cleaned:
+        categories.append('все культуры открытого грунта')
+        additional_crops = SPECIAL_CROP_ADDITIONS.get('все культуры открытого грунта', [])
+    
+    # Проверяем "плодово-ягодные"
+    if 'плодово-ягодные' in cleaned:
+        additional_crops.extend(SPECIAL_CROP_ADDITIONS.get('плодово-ягодные', []))
+    
+    # Проверяем "зерновые колосовые"
+    if 'зерновые колосовые' in cleaned:
+        # Извлекаем исключения
+        if 'за исключением' in cleaned or 'кроме' in cleaned:
+            # Парсим исключения
+            excluded = []
+            if 'овса' in cleaned or 'овес' in cleaned:
+                excluded.append('овес')
+            # Добавляем все зерновые кроме исключенных
+            grains = ['пшеница', 'ячмень', 'рожь', 'тритикале', 'гречиха', 'просо']
+            for grain in grains:
+                if grain not in excluded:
+                    additional_crops.append(grain)
+        else:
+            additional_crops.extend(['пшеница', 'ячмень', 'рожь', 'овес', 'тритикале', 'гречиха', 'просо'])
+    
+    # Проверяем "кукуруза на зерно/силос"
+    if 'кукуруза на зерно' in cleaned or 'кукуруза на силос' in cleaned:
+        additional_crops.append('кукуруза')
+    
+    return categories, list(set(additional_crops))
+
+
+def extract_crops(kultura_string):
+    """Извлекает культуры из строки, включая специальные категории."""
+    if not kultura_string:
+        return []
+    
+    # Сначала проверяем специальные категории
+    special_categories, additional_crops = extract_special_categories(kultura_string)
+    
+    # Стандартное извлечение культур
     cleaned = clean_crop_string(kultura_string)
     parts = split_crops(cleaned)
     results = []
+    
     for part in parts:
         crop = clean_single_crop(part)
         if not crop:
@@ -502,4 +593,44 @@ def extract_crops(kultura_string):
         crop = canonicalize_crop(crop)
         if is_valid_crop_tag(crop):
             results.append(crop)
-    return results
+    
+    # Добавляем дополнительные культуры из специальных категорий
+    for crop in additional_crops:
+        if crop not in results:
+            results.append(crop)
+    
+    return list(set(results))
+
+
+def extract_crops_with_categories(kultura_string):
+    """Извлекает культуры и категории из строки.
+    
+    Returns:
+        tuple: (list of crops, list of categories)
+    """
+    if not kultura_string:
+        return [], []
+    
+    # Получаем специальные категории и дополнительные культуры
+    special_categories, additional_crops = extract_special_categories(kultura_string)
+    
+    # Стандартное извлечение культур
+    cleaned = clean_crop_string(kultura_string)
+    parts = split_crops(cleaned)
+    results = []
+    
+    for part in parts:
+        crop = clean_single_crop(part)
+        if not crop:
+            continue
+        crop = singularize_crop(crop)
+        crop = canonicalize_crop(crop)
+        if is_valid_crop_tag(crop):
+            results.append(crop)
+    
+    # Добавляем дополнительные культуры из специальных категорий
+    for crop in additional_crops:
+        if crop not in results:
+            results.append(crop)
+    
+    return list(set(results)), special_categories

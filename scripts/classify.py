@@ -3,7 +3,7 @@ import json
 import re
 import sys
 sys.path.insert(0, '/root/.openclaw/workspace/agro_registry_bot')
-from src.crop_parser import extract_crops
+from src.crop_parser import extract_crops, extract_crops_with_categories
 
 # Connect to DB
 db = sqlite3.connect('data/reestr.db')
@@ -737,8 +737,11 @@ def classify_pesticide(product_id, name, dv_json, apps):
     
     # Add specific crop tags - split compound entries
     for crop_raw in all_crops:
-        for crop_clean in extract_crops(crop_raw):
+        crops, categories = extract_crops_with_categories(crop_raw)
+        for crop_clean in crops:
             tags.add(('crop', crop_clean))
+        for category in categories:
+            tags.add(('crop_group', category))
     
     # Classify by pests
     has_fungal = any(kw in pests_text for kw in FUNGAL_KEYWORDS)
@@ -922,10 +925,13 @@ def classify_agrochemical(product_id, name, dv_json, apps):
     
     methods_text = ' '.join(all_methods)
     
-    # Add specific crop tags - split compound entries
+    # Add specific crop tags - split compound entries (AGROCHEMICALS)
     for crop_raw in all_crops:
-        for crop_clean in extract_crops(crop_raw):
+        crops, categories = extract_crops_with_categories(crop_raw)
+        for crop_clean in crops:
             tags.add(('crop', crop_clean))
+        for category in categories:
+            tags.add(('crop_group', category))
     
     # Method tags
     for pattern, method_tag in METHOD_RULES:
