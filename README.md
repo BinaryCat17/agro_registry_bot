@@ -1,94 +1,123 @@
-# Агро-реестр бот (Agro Registry Bot)
+# АгроРеестр Бот
 
-Локальная копия официального реестра пестицидов и агрохимикатов Минсельхоза России с возможностью поиска через SQL и Python API.
+Поиск по государственному реестру пестицидов и агрохимикатов Минсельхоза РФ.
 
-## Структура
-
-- `data/reestr.db` — SQLite база данных реестра
-- `src/importer.py` — загрузка и парсинг XML с `opendata.mcx.ru`
-- `src/database.py` — класс `RegistryDatabase` для работы с БД
-- `query.py` — CLI-утилита для быстрых SQL-запросов
-- `update_db.py` — скрипт полного обновления базы
-
-## Использование
-
-### Обновить базу
+## Быстрый старт
 
 ```bash
-python update_db.py
+# 1. Клонировать репозиторий
+git clone https://github.com/BinaryCat17/agro_registry_bot.git
+cd agro_registry_bot
+
+# 2. Создать виртуальное окружение
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Установить зависимости
+pip install -r requirements.txt
+
+# 4. Скопировать и настроить .env
+cp .env.example .env
+# Отредактировать .env - указать YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET, ADMIN_EMAIL
+
+# 5. Инициализировать базу данных
+python3 -c "from src.importer import run_import; run_import()"
+
+# 6. Запустить классификацию
+python3 scripts/classify.py
+python3 scripts/classify_crop_groups.py
+
+# 7. Запустить веб-сервер
+python3 web/main.py
 ```
 
-### Выполнить SQL-запрос
+## Структура проекта
+
+```
+.
+├── data/                  # База данных и XML-файлы
+│   ├── reestr.db         # SQLite база
+│   ├── agrokhimikaty.xml # Исходные данные
+│   └── pestitsidy.xml
+├── scripts/              # Скрипты обработки
+│   ├── classify.py              # Классификация классов/методов
+│   ├── classify_crop_groups.py  # Назначение групп культур
+│   ├── rebuild_crops.py         # Перестройка тегов культур
+│   └── auto_update.sh           # Автообновление (cron)
+├── src/                  # Исходный код
+│   ├── crop_parser.py    # Парсер культур
+│   ├── crop_hierarchy.py # Иерархия культур
+│   ├── importer.py       # Импорт из XML
+│   └── database.py       # Работа с БД
+├── web/                  # Веб-интерфейс
+│   ├── main.py           # FastAPI backend
+│   └── static/           # Frontend (Vue.js)
+└── backups/              # Автоматические бэкапы
+```
+
+## Скрипты обработки данных
+
+Все изменения базы данных автоматизированы через скрипты:
+
+| Скрипт | Назначение |
+|--------|-----------|
+| `scripts/classify.py` | Классификация препаратов по классу (фунгицид, инсектицид...) и методу применения |
+| `scripts/classify_crop_groups.py` | Назначение групп культур (зерновые, бобовые...) |
+| `scripts/rebuild_crops.py` | Перестройка тегов культур из сырых данных |
+| `src/importer.py` | Загрузка свежих данных из XML Минсельхоза |
+
+## Автообновление базы данных
+
+Настройка автоматического обновления каждую ночь в полночь:
 
 ```bash
-python query.py "SELECT * FROM pestitsidy WHERE naimenovanie REGEXP 'престиж' LIMIT 3"
+# Открыть crontab
+crontab -e
+
+# Добавить строку:
+0 0 * * * /path/to/agro_registry_bot/scripts/auto_update.sh
 ```
 
-### Использовать в Python
+Скрипт `auto_update.sh` выполняет:
+1. Бэкап текущей базы (сохраняет 10 последних)
+2. Загрузку свежих XML с сайта Минсельхоза
+3. Пересоздание таблиц
+4. Классификацию всех данных
+5. Логирование в `auto_update.log`
 
-```python
-from src.database import RegistryDatabase
+## Обновление вручную
 
-db = RegistryDatabase()
+```bash
+cd /path/to/agro_registry_bot
+source .venv/bin/activate
 
-# Поиск пестицида по названию
-results = db.find_pesticide_by_name("престиж")
+# 1. Загрузить свежие данные
+python3 -c "from src.importer import run_import; run_import()"
 
-# Поиск по действующему веществу
-results = db.find_pesticide_by_dv("имидаклоприд")
+# 2. Переклассифицировать
+python3 scripts/classify.py
+python3 scripts/classify_crop_groups.py
 
-# Поиск по культуре
-results = db.search_pesticides_by_crop("пшеница озимая")
-
-# Регламенты применения конкретного препарата
-apps = db.find_pesticide_applications("019-01-2400-1")
+# 3. Перезапустить сервер
+pkill -f "python3 web/main.py"
+python3 web/main.py
 ```
 
-## Таблицы
+## Переменные окружения (.env)
 
-### Пестициды
+```bash
+# Обязательные (Yandex OAuth для админки)
+YANDEX_CLIENT_ID=your_client_id
+YANDEX_CLIENT_SECRET=your_client_secret
+ADMIN_EMAIL=admin@example.com
+PUBLIC_HOST=https://your-domain.com
+SESSION_SECRET=random-secret-key
 
-- `pestitsidy` — основные сведения о препаратах
-  - `nomer_reg` — номер государственной регистрации
-  - `naimenovanie` — торговое название
-  - `deystvuyushchee_veshchestvo` — JSON массив ДВ с концентрациями
-  - `registrant` — регистратор
-  - `status` — статус регистрации
-  - `srok_reg` — срок действия регистрации
-  - `preparativnaya_forma` — препаративная форма
-  - `klass_opasnosti` — класс опасности
+# Опциональные (для AI-чата)
+GEMINI_API_KEY=
+OPENAI_API_KEY=
+```
 
-- `pestitsidy_primeneniya` — регламенты применения
-  - `nomer_reg` — FK
-  - `kultura` — культура / объект обработки
-  - `vrednyy_obekt` — вредный объект / назначение
-  - `sposob` — способ и время обработки
-  - `norma` — норма применения
-  - `srok_ozhidaniya` — срок ожидания
-  - `vyhod` — сроки выхода для работ
-  - `osobennosti` — особенности применения
+## Лицензия
 
-### Агрохимикаты
-
-- `agrokhimikaty` — основные сведения
-  - `rn` — номер регистрации
-  - `preparat` — название препарата
-  - `registrant` — регистратор
-  - `status` — статус
-  - `srok_reg` — срок действия
-  - `group_name` — группа
-
-- `agrokhimikaty_primeneniya` — регламенты применения
-  - `rn` — FK
-  - `kultura` — культура
-  - `marka` — марка / вид
-  - `oblast` — область применения
-  - `doza` — доза применения
-  - `vremya` — время применения
-  - `osobennosti` — особенности
-
-## Особенности
-
-- Поддержка `REGEXP` в SQLite (регистронезависимый поиск по кириллице)
-- Поле `deystvuyushchee_veshchestvo` хранится как JSON и может быть разобрано через `json_each()` в SQL
-- База обновляется из официальных открытых данных Минсельхоза
+MIT
