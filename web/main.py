@@ -213,30 +213,65 @@ async def api_search(
         else:
             seen = set()
             all_items = []
-            for r in db.find_pesticide_by_name(q, active_only=active_only, limit=10000):
-                if r['id'] not in seen:
-                    seen.add(r['id']); all_items.append(r)
-            for r in db.find_pesticide_by_dv(q, active_only=active_only, limit=10000):
-                if r['id'] not in seen:
-                    seen.add(r['id']); all_items.append(r)
-            for r in db.search_pesticides_by_crop(q, active_only=active_only, limit=10000):
-                if r['id'] not in seen:
-                    seen.add(r['id']); all_items.append(r)
-            for r in db.search_pesticides_by_pest(q, active_only=active_only, limit=10000):
-                if r['id'] not in seen:
-                    seen.add(r['id']); all_items.append(r)
-            if tag_ids:
-                tag_placeholders = ",".join(["?"] * len(tag_ids))
+            # Special case: empty query with filters - get all matching products directly
+            if not q and (tag_ids or crop_group_id):
+                # Get all products with the specified crop_group
+                if crop_group_id:
+                    rows = db.execute("""
+                        SELECT DISTINCT p.* FROM pestitsidy p
+                        JOIN product_tags pt ON pt.product_id = p.id AND pt.product_type = 'pesticide'
+                        WHERE pt.tag_id = ?
+                    """, (crop_group_id,))
+                    all_items = rows
+                else:
+                    # Just get all products for tag filtering
+                    rows = db.execute("SELECT * FROM pestitsidy")
+                    all_items = rows
+            else:
+                for r in db.find_pesticide_by_name(q, active_only=active_only, limit=10000):
+                    if r['id'] not in seen:
+                        seen.add(r['id']); all_items.append(r)
+                for r in db.find_pesticide_by_dv(q, active_only=active_only, limit=10000):
+                    if r['id'] not in seen:
+                        seen.add(r['id']); all_items.append(r)
+                for r in db.search_pesticides_by_crop(q, active_only=active_only, limit=10000):
+                    if r['id'] not in seen:
+                        seen.add(r['id']); all_items.append(r)
+                for r in db.search_pesticides_by_pest(q, active_only=active_only, limit=10000):
+                    if r['id'] not in seen:
+                        seen.add(r['id']); all_items.append(r)
+            if tag_ids or crop_group_id:
                 ids = [r['id'] for r in all_items]
                 if ids:
-                    id_placeholders = ",".join(["?"] * len(ids))
-                    filtered = db.execute(f"""
-                        SELECT product_id FROM product_tags
-                        WHERE product_type = 'pesticide' AND tag_id IN ({tag_placeholders}) AND product_id IN ({id_placeholders})
-                        GROUP BY product_id HAVING COUNT(DISTINCT tag_id) >= {len(tag_ids)}
-                    """, (*tag_ids, *ids))
-                    allowed = {r['product_id'] for r in filtered}
-                    all_items = [r for r in all_items if r['id'] in allowed]
+                    params = list(ids)
+                    if tag_ids:
+                        tag_placeholders = ",".join(["?"] * len(tag_ids))
+                        filtered = db.execute(f"""
+                            SELECT product_id FROM product_tags
+                            WHERE product_type = 'pesticide' AND tag_id IN ({tag_placeholders}) AND product_id IN ({','.join(['?'] * len(ids))})
+                            GROUP BY product_id HAVING COUNT(DISTINCT tag_id) >= {len(tag_ids)}
+                        """, (*tag_ids, *ids))
+                        allowed = {r['product_id'] for r in filtered}
+                        params = [pid for pid in ids if pid in allowed]
+                        if not params:
+                            all_items = []
+                    if crop_group_id and all_items and q:  # Only if we didn't already filter by crop_group above
+                        # Filter by crop group
+                        cg_filtered = db.execute(f"""
+                            SELECT DISTINCT pt.product_id 
+                            FROM product_tags pt
+                            WHERE pt.tag_id = ? 
+                            AND pt.product_type = 'pesticide'
+                            AND pt.product_id IN ({','.join(['?'] * len(params))})
+                        """, (crop_group_id, *params))
+                        allowed_cg = {r['product_id'] for r in cg_filtered}
+                        params = [pid for pid in params if pid in allowed_cg]
+                    # Re-fetch items with filtered IDs
+                    if params:
+                        id_placeholders = ",".join(["?"] * len(params))
+                        all_items = db.execute(f"SELECT * FROM pestitsidy WHERE id IN ({id_placeholders})", params)
+                    else:
+                        all_items = []
                 else:
                     all_items = []
             total = len(all_items)
@@ -274,24 +309,59 @@ async def api_search(
         else:
             seen = set()
             all_items = []
-            for r in db.find_agrochemical_by_name(q, active_only=active_only, limit=10000):
-                if r['id'] not in seen:
-                    seen.add(r['id']); all_items.append(r)
-            for r in db.search_agrochemicals_by_crop(q, active_only=active_only, limit=10000):
-                if r['id'] not in seen:
-                    seen.add(r['id']); all_items.append(r)
-            if tag_ids:
-                tag_placeholders = ",".join(["?"] * len(tag_ids))
+            # Special case: empty query with filters - get all matching products directly
+            if not q and (tag_ids or crop_group_id):
+                # Get all products with the specified crop_group
+                if crop_group_id:
+                    rows = db.execute("""
+                        SELECT DISTINCT a.* FROM agrokhimikaty a
+                        JOIN product_tags pt ON pt.product_id = a.id AND pt.product_type = 'agrochemical'
+                        WHERE pt.tag_id = ?
+                    """, (crop_group_id,))
+                    all_items = rows
+                else:
+                    # Just get all products for tag filtering
+                    rows = db.execute("SELECT * FROM agrokhimikaty")
+                    all_items = rows
+            else:
+                for r in db.find_agrochemical_by_name(q, active_only=active_only, limit=10000):
+                    if r['id'] not in seen:
+                        seen.add(r['id']); all_items.append(r)
+                for r in db.search_agrochemicals_by_crop(q, active_only=active_only, limit=10000):
+                    if r['id'] not in seen:
+                        seen.add(r['id']); all_items.append(r)
+            if tag_ids or crop_group_id:
                 ids = [r['id'] for r in all_items]
                 if ids:
-                    id_placeholders = ",".join(["?"] * len(ids))
-                    filtered = db.execute(f"""
-                        SELECT product_id FROM product_tags
-                        WHERE product_type = 'agrochemical' AND tag_id IN ({tag_placeholders}) AND product_id IN ({id_placeholders})
-                        GROUP BY product_id HAVING COUNT(DISTINCT tag_id) >= {len(tag_ids)}
-                    """, (*tag_ids, *ids))
-                    allowed = {r['product_id'] for r in filtered}
-                    all_items = [r for r in all_items if r['id'] in allowed]
+                    params = list(ids)
+                    if tag_ids:
+                        tag_placeholders = ",".join(["?"] * len(tag_ids))
+                        filtered = db.execute(f"""
+                            SELECT product_id FROM product_tags
+                            WHERE product_type = 'agrochemical' AND tag_id IN ({tag_placeholders}) AND product_id IN ({','.join(['?'] * len(ids))})
+                            GROUP BY product_id HAVING COUNT(DISTINCT tag_id) >= {len(tag_ids)}
+                        """, (*tag_ids, *ids))
+                        allowed = {r['product_id'] for r in filtered}
+                        params = [pid for pid in ids if pid in allowed]
+                        if not params:
+                            all_items = []
+                    if crop_group_id and all_items and q:  # Only if we didn't already filter by crop_group above
+                        # Filter by crop group
+                        cg_filtered = db.execute(f"""
+                            SELECT DISTINCT pt.product_id 
+                            FROM product_tags pt
+                            WHERE pt.tag_id = ? 
+                            AND pt.product_type = 'agrochemical'
+                            AND pt.product_id IN ({','.join(['?'] * len(params))})
+                        """, (crop_group_id, *params))
+                        allowed_cg = {r['product_id'] for r in cg_filtered}
+                        params = [pid for pid in params if pid in allowed_cg]
+                    # Re-fetch items with filtered IDs
+                    if params:
+                        id_placeholders = ",".join(["?"] * len(params))
+                        all_items = db.execute(f"SELECT * FROM agrokhimikaty WHERE id IN ({id_placeholders})", params)
+                    else:
+                        all_items = []
                 else:
                     all_items = []
             total = len(all_items)
