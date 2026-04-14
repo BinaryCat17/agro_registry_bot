@@ -29,16 +29,6 @@ def add_tag(category, name, description=''):
         return row[0]
     return None
 
-# Delete old crop_group tags before reclassification
-c.execute("SELECT id FROM tags WHERE category = 'crop_group'")
-old_crop_tag_ids = [row[0] for row in c.fetchall()]
-if old_crop_tag_ids:
-    placeholders = ','.join(['?' for _ in old_crop_tag_ids])
-    c.execute(f"DELETE FROM product_tags WHERE tag_id IN ({placeholders})", old_crop_tag_ids)
-    c.execute(f"DELETE FROM tags WHERE id IN ({placeholders})", old_crop_tag_ids)
-    db.commit()
-    print(f"Cleaned {len(old_crop_tag_ids)} old crop_group tags")
-
 # Rule sets
 FUNGAL_KEYWORDS = [
     'мучнистая роса', 'фитофтороз', 'альтернариоз', 'ржавчина', 'гниль', 'пятнистость',
