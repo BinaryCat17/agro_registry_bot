@@ -265,11 +265,12 @@ async def api_search(
                             allowed_crops = CROP_HIERARCHY.get(group_name, [])
                             if allowed_crops:
                                 placeholders = ','.join(['?' for _ in allowed_crops])
+                                status_filter = " AND p.status = 'Действует'" if active_only else ""
                                 rows = conn.execute(f"""
                                     SELECT DISTINCT p.* FROM pestitsidy p
                                     JOIN product_tags pt ON pt.product_id = p.id AND pt.product_type = 'pesticide'
                                     JOIN tags t ON t.id = pt.tag_id
-                                    WHERE t.category = 'crop' AND t.name IN ({placeholders})
+                                    WHERE t.category = 'crop' AND t.name IN ({placeholders}){status_filter}
                                 """, list(allowed_crops)).fetchall()
                                 all_items = [dict(r) for r in rows]
                             else:
@@ -280,7 +281,10 @@ async def api_search(
                         conn.close()
                 else:
                     # Just get all products for tag filtering
-                    rows = db.execute("SELECT * FROM pestitsidy")
+                    if active_only:
+                        rows = db.execute("SELECT * FROM pestitsidy WHERE status = 'Действует'")
+                    else:
+                        rows = db.execute("SELECT * FROM pestitsidy")
                     all_items = rows
             else:
                 for r in db.find_pesticide_by_name(q, active_only=active_only, limit=10000):
@@ -324,7 +328,8 @@ async def api_search(
                     # Re-fetch items with filtered IDs
                     if params:
                         id_placeholders = ",".join(["?"] * len(params))
-                        all_items = db.execute(f"SELECT * FROM pestitsidy WHERE id IN ({id_placeholders})", params)
+                        status_where = " AND status = 'Действует'" if active_only else ""
+                        all_items = db.execute(f"SELECT * FROM pestitsidy WHERE id IN ({id_placeholders}){status_where}", params)
                     else:
                         all_items = []
                 else:
@@ -379,11 +384,12 @@ async def api_search(
                             allowed_crops = CROP_HIERARCHY.get(group_name, [])
                             if allowed_crops:
                                 placeholders = ','.join(['?' for _ in allowed_crops])
+                                status_filter = " AND a.status = 'Действует'" if active_only else ""
                                 rows = conn.execute(f"""
                                     SELECT DISTINCT a.* FROM agrokhimikaty a
                                     JOIN product_tags pt ON pt.product_id = a.id AND pt.product_type = 'agrochemical'
                                     JOIN tags t ON t.id = pt.tag_id
-                                    WHERE t.category = 'crop' AND t.name IN ({placeholders})
+                                    WHERE t.category = 'crop' AND t.name IN ({placeholders}){status_filter}
                                 """, list(allowed_crops)).fetchall()
                                 all_items = [dict(r) for r in rows]
                             else:
@@ -394,7 +400,10 @@ async def api_search(
                         conn.close()
                 else:
                     # Just get all products for tag filtering
-                    rows = db.execute("SELECT * FROM agrokhimikaty")
+                    if active_only:
+                        rows = db.execute("SELECT * FROM agrokhimikaty WHERE status = 'Действует'")
+                    else:
+                        rows = db.execute("SELECT * FROM agrokhimikaty")
                     all_items = rows
             else:
                 for r in db.find_agrochemical_by_name(q, active_only=active_only, limit=10000):
@@ -432,7 +441,8 @@ async def api_search(
                     # Re-fetch items with filtered IDs
                     if params:
                         id_placeholders = ",".join(["?"] * len(params))
-                        all_items = db.execute(f"SELECT * FROM agrokhimikaty WHERE id IN ({id_placeholders})", params)
+                        status_where = " AND status = 'Действует'" if active_only else ""
+                        all_items = db.execute(f"SELECT * FROM agrokhimikaty WHERE id IN ({id_placeholders}){status_where}", params)
                     else:
                         all_items = []
                 else:
