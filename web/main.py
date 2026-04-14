@@ -116,20 +116,39 @@ async def api_tags(type: str = Query("pesticides", regex="^(pesticides|agrochemi
         ORDER BY t.category, t.name
     """, (product_type,))
     result = {}
+    EXCLUDED_CROP_GROUPS = {
+        'земли несельхозназначения', 'пары', 'все культуры открытого грунта',
+        'вырубки разной давности', 'нежилые помещения', 'нежилые_помещения',
+        'прочие', 'сорняки_вредные_объекты'
+    }
     for r in rows:
         cat = r['category']
         if cat not in result:
             result[cat] = []
+        # Skip excluded crop_group tags
+        if cat == 'crop_group' and r['name'] in EXCLUDED_CROP_GROUPS:
+            continue
         result[cat].append({"id": r['id'], "name": r['name']})
     
     # Add hierarchical crop groups structure
     if 'crop' in result or 'crop_group' in result:
         result['crop_hierarchy'] = []
         
-        # Get all crop groups from tags
+        # Categories to exclude from crop hierarchy (special non-crop categories)
+        EXCLUDED_CROP_GROUPS = {
+            'земли несельхозназначения', 'пары', 'все культуры открытого грунта',
+            'вырубки разной давности', 'нежилые помещения', 'нежилые_помещения',
+            'прочие', 'сорняки_вредные_объекты'
+        }
+        
+        # Get all crop groups from tags (excluding special categories)
         group_rows = db.execute("""
             SELECT t.id, t.name FROM tags t
-            WHERE t.category = 'crop_group' AND t.name != 'все культуры'
+            WHERE t.category = 'crop_group' 
+              AND t.name != 'все культуры'
+              AND t.name NOT IN ('земли несельхозназначения', 'пары', 'все культуры открытого грунта',
+                                 'вырубки разной давности', 'нежилые помещения', 'нежилые_помещения',
+                                 'прочие', 'сорняки_вредные_объекты')
             ORDER BY t.name
         """)
         
