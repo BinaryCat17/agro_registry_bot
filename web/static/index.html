@@ -168,12 +168,6 @@
             <option value="">— Культура —</option>
             <option v-for="t in availableCropsInGroup" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select>
-          <button v-if="tempCropGroup && availableCropsInGroup.length" 
-                  class="btn btn-secondary" 
-                  style="padding: 8px 12px; font-size: 13px;"
-                  @click="addAllCropsInGroup()">
-            Все: {{ getGroupName(tempCropGroup) }}
-          </button>
           
           <span v-for="t in selectedTagObjects" :key="t.id" :class="'tag-badge ' + t.category" @click="removeTag(t.id)">
             {{ t.name }} <span class="x">×</span>
@@ -369,7 +363,8 @@
           tempTagClass: '',
           tempTagMethod: '',
           tempCropGroup: '',
-          tempTagCrop: ''
+          tempTagCrop: '',
+          cropGroupId: 0
         }
       },
       computed: {
@@ -388,7 +383,8 @@
           this.page = page;
           try {
             const tagIds = Object.keys(this.selectedTags).join(',');
-            const r = await fetch(`/api/search?type=${this.stype}&field=${this.sfield}&q=${encodeURIComponent(this.query)}&page=${page}&limit=${this.limit}&active_only=${this.activeOnly}&tags=${encodeURIComponent(tagIds)}`);
+            const cropGroupParam = this.cropGroupId ? `&crop_group_id=${this.cropGroupId}` : '';
+            const r = await fetch(`/api/search?type=${this.stype}&field=${this.sfield}&q=${encodeURIComponent(this.query)}&page=${page}&limit=${this.limit}&active_only=${this.activeOnly}&tags=${encodeURIComponent(tagIds)}${cropGroupParam}`);
             const d = await r.json();
             this.results = d.items || [];
             this.total = d.total || 0;
@@ -422,6 +418,8 @@
         },
         onCropGroupChange() {
           this.tempTagCrop = '';
+          this.cropGroupId = this.tempCropGroup ? parseInt(this.tempCropGroup) : 0;
+          this.search(1);
         },
         getGroupName(groupId) {
           if (!groupId || !this.availableTags.crop_hierarchy) return '';
@@ -485,7 +483,8 @@
           const titles = {
             class: 'Класс препарата',
             method: 'Способ применения',
-            crop: 'Культуры'
+            crop: 'Культуры',
+            action: 'Тип действия'
           };
           return titles[cat] || cat;
         },
@@ -583,6 +582,7 @@
           this.selectedTags = {};
           this.tempCropGroup = '';
           this.tempTagCrop = '';
+          this.cropGroupId = 0;
           this.loadTags();
           this.search(1);
         },
