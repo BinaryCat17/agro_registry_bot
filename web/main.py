@@ -65,6 +65,25 @@ def _tag_filter_sql(table_alias: str, product_type: str, tag_ids: list):
           AND pt2.tag_id IN ({placeholders})
     )""", tag_ids
 
+def _crop_group_filter_sql(table_alias: str, product_type: str, crop_group_id: int):
+    if not crop_group_id:
+        return "", []
+    return f"""AND EXISTS (
+        SELECT 1 FROM product_tags pt_c
+        JOIN tags t_c ON t_c.id = pt_c.tag_id
+        WHERE pt_c.product_id = {table_alias}.id
+          AND pt_c.product_type = '{product_type}'
+          AND t_c.category = 'crop'
+          AND EXISTS (
+              SELECT 1 FROM product_tags pt_g
+              JOIN tags t_g ON t_g.id = pt_g.tag_id
+              WHERE pt_g.product_id = pt_c.product_id
+                AND pt_g.product_type = pt_c.product_type
+                AND t_g.category = 'crop_group'
+                AND t_g.id = {crop_group_id}
+          )
+    )""", []
+
 @app.get("/api/tags")
 async def api_tags(type: str = Query("pesticides", regex="^(pesticides|agrochemicals)$")):
     product_type = "pesticide" if type == "pesticides" else "agrochemical"
@@ -128,24 +147,33 @@ async def api_search(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     active_only: bool = Query(True),
-    tags: str = Query("")
+    tags: str = Query(""),
+    crop_group_id: int = Query(0)
 ):
     offset = (page - 1) * limit
     tag_ids = [int(t) for t in tags.split(",") if t.strip().isdigit()] if tags else []
+    
+    # Build crop group filter
+    crop_group_sql, crop_group_params = "", []
+    if crop_group_id > 0:
+        if type == "pesticides":
+            crop_group_sql, crop_group_params = _crop_group_filter_sql("p", "pesticide", crop_group_id)
+        else:
+            crop_group_sql, crop_group_params = _crop_group_filter_sql("a", "agrochemical", crop_group_id)
 
     if type == "pesticides":
         tag_sql, tag_params = _tag_filter_sql("p", "pesticide", tag_ids)
+        all_params = crop_group_params + tag_params
         if field == "name":
             items = db.find_pesticide_by_name(q, active_only=active_only, limit=limit, offset=offset)
             where = "p.naimenovanie REGEXP ?"
             if active_only:
                 where += " AND p.status = 'Действует'"
-            where += " " + tag_sql
-            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy p WHERE {where}", (yo_pattern(q), *tag_params))
+            where += " " + crop_group_sql + " " + tag_sql
+            total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy p WHERE {where}", (yo_pattern(q), *all_params))
             total = total_res[0]['c']
-            # re-query with tag filter if tags present
-            if tag_ids:
-                items = db.execute(f"SELECT p.* FROM pestitsidy p WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
+            if tag_ids or crop_group_id:
+                items = db.execute(f"SELECT p.* FROM pestitsidy p WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *all_params))
         elif field == "dv":
             items = db.find_pesticide_by_dv(q, active_only=active_only, limit=limit, offset=offset)
             where = "exists (SELECT 1 FROM json_each(p.deystvuyushchee_veshchestvo) dv WHERE dv.value->>'veshchestvo' REGEXP ?)"
