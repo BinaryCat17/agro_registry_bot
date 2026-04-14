@@ -482,15 +482,21 @@ METHOD_RULES = [
     (r'фумигация', 'фумигация'),
     (r'внесение в норы', 'обработка почвы'),
     (r'внесение брикетов', 'обработка почвы'),
+    (r'внесение в почву', 'обработка почвы'),
     (r'опрыскивание в период вегетации', 'вегетационное опрыскивание'),
     (r'опрыскивание посевов', 'вегетационное опрыскивание'),
     (r'опрыскивание посадок', 'опрыскивание посадок'),
+    (r'опрыскивание почвы', 'обработка почвы'),
     (r'авиационное опрыскивание', 'вегетационное опрыскивание'),
+    (r'опрыскивание', 'опрыскивание'),
     (r'дезинсекция', 'обработка склада'),
     (r'дератизация', 'обработка почвы'),
-    (r'внесение в почву', 'обработка почвы'),
     (r'предпосевная', 'предпосевная обработка'),
     (r'обработка склад', 'обработка склада'),
+    (r'полив', 'внесение'),
+    (r'орошение', 'внесение'),
+    (r'дожевание', 'внесение'),
+    (r'внесение', 'внесение'),
 ]
 
 # Delete old crop_group tags before reclassification
@@ -811,6 +817,22 @@ def classify_pesticide(product_id, name, dv_json, apps):
         elif 'фумигант' in name_lower:
             tags.add(('class', 'фумигант'))
     
+    # Default method fallback based on class
+    if not any(t[0] == 'method' for t in tags):
+        cls = None
+        for t in tags:
+            if t[0] == 'class':
+                cls = t[1]
+                break
+        if cls in ['гербицид', 'фунгицид', 'инсектицид']:
+            tags.add(('method', 'вегетационное опрыскивание'))
+        elif cls == 'протравитель':
+            tags.add(('method', 'протравливание семян'))
+        elif cls == 'фумигант':
+            tags.add(('method', 'фумигация'))
+        else:
+            tags.add(('method', 'обработка'))
+    
     return tags
 
 # Fetch all pesticides with their apps
@@ -923,6 +945,10 @@ def classify_agrochemical(product_id, name, dv_json, apps):
         tags.add(('class', 'гербицид'))
     if any(kw in name_lower for kw in ['биоторфин', 'ризолик', 'биопрепарат', 'биоактиватор', 'азотофит', 'фосфорин', 'калийный', 'микробиологический']):
         tags.add(('class', 'биопрепарат'))
+    
+    # Default method for agrochemicals - most are applied via "внесение"
+    if not any(t[0] == 'method' for t in tags):
+        tags.add(('method', 'внесение'))
     
     return tags
 
