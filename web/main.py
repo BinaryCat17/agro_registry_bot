@@ -107,33 +107,32 @@ async def api_tags(type: str = Query("pesticides", regex="^(pesticides|agrochemi
     if 'crop' in result or 'crop_group' in result:
         result['crop_hierarchy'] = []
         
-        # Get all crop groups
+        # Get all crop groups from tags
         group_rows = db.execute("""
             SELECT t.id, t.name FROM tags t
             WHERE t.category = 'crop_group' AND t.name != 'все культуры'
             ORDER BY t.name
         """)
         
+        # Get crops from DB once
+        crop_rows = db.execute("""
+            SELECT DISTINCT t.id, t.name FROM tags t
+            JOIN product_tags pt ON pt.tag_id = t.id AND pt.product_type = ?
+            WHERE t.category = 'crop'
+            ORDER BY t.name
+        """, (product_type,))
+        db_crops = list(crop_rows)
+        
+        # Add all groups from tags with their crops from CROP_HIERARCHY
         for group_row in group_rows:
-            # Get crops that belong to this group using CROP_HIERARCHY mapping
             group_name = group_row['name']
             allowed_crops = set(CROP_HIERARCHY.get(group_name, []))
-            
-            # Get all crops from DB that are in this group
-            crop_rows = db.execute("""
-                SELECT DISTINCT t.id, t.name FROM tags t
-                JOIN product_tags pt ON pt.tag_id = t.id AND pt.product_type = ?
-                WHERE t.category = 'crop'
-                ORDER BY t.name
-            """, (product_type,))
-            
-            crops = [{"id": r['id'], "name": r['name']} for r in crop_rows if r['name'] in allowed_crops]
-            if crops:
-                result['crop_hierarchy'].append({
-                    "group_id": group_row['id'],
-                    "group_name": group_row['name'],
-                    "crops": crops
-                })
+            crops = [{"id": r['id'], "name": r['name']} for r in db_crops if r['name'] in allowed_crops]
+            result['crop_hierarchy'].append({
+                "group_id": group_row['id'],
+                "group_name": group_row['name'],
+                "crops": crops
+            })
     
     return result
 

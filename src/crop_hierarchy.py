@@ -6,6 +6,13 @@ This file is used by both classify_crop_groups.py and web/main.py
 # Hierarchy definition: category -> list of crops belonging to it
 # Note: Some crops can belong to multiple groups (e.g., 'соя' is both масличные and бобовые)
 CROP_HIERARCHY = {
+    # Специальные категории (из crop_group тегов)
+    'земли несельхозназначения': [],
+    'пары': [],
+    'все культуры открытого грунта': [],
+    'вырубки разной давности': [],
+    'нежилые помещения': [],
+    
     'зерновые': [
         'пшеница', 'пшеница яровая', 'пшеница озимая',
         'ячмень', 'ячмень яровой', 'ячмень озимый',
