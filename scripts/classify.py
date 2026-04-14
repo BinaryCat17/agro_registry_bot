@@ -372,7 +372,13 @@ CLASS_MAP_DV = {
     'липо-хитоолигосахариды': 'биопрепарат',
     'тритерпеновые кислоты': 'биопрепарат',
     'гуминовые кислоты': 'биопрепарат',
+    'гуминовых кислот': 'биопрепарат',
     'фульвокислоты': 'биопрепарат',
+    'фульвокислот': 'биопрепарат',
+    'l-глутаминовая кислота': 'биопрепарат',
+    'l-глутаминовой кислоты': 'биопрепарат',
+    'флавоноиды': 'биопрепарат',
+    'флавоноиды ели': 'биопрепарат',
     'коллоидное серебро': 'биопрепарат',
     'масло чайного дерева': 'биопрепарат',
     'эфирные масла': 'биопрепарат',
@@ -772,16 +778,10 @@ def classify_pesticide(product_id, name, dv_json, apps):
     if 'клещ' in pests_text and not has_insect:
         tags.add(('class', 'акарицид'))
     
-    # Protivatel logic
+    # Protivatel logic - only method, not class
     if 'протравливание семян' in methods_text or 'обработка семян' in methods_text:
         tags.add(('method', 'протравливание семян'))
-        # If also fungicidal or insecticidal, keep both tags
-        if has_fungal or has_insect:
-            pass  # keep existing class tags
-        else:
-            # If no other class identified by pests, mark as protivatel
-            if not any(t[0] == 'class' for t in tags):
-                tags.add(('class', 'протравитель'))
+        # Note: Class is determined by DV or pests, not by application method
     
     # Method tags
     for pattern, method_tag in METHOD_RULES:
@@ -825,8 +825,6 @@ def classify_pesticide(product_id, name, dv_json, apps):
             tags.add(('class', 'инсектицид'))
         elif 'гербицид' in name_lower:
             tags.add(('class', 'гербицид'))
-        elif 'протравитель' in name_lower:
-            tags.add(('class', 'протравитель'))
         elif 'родентицид' in name_lower:
             tags.add(('class', 'родентицид'))
         elif 'фумигант' in name_lower:
@@ -841,8 +839,6 @@ def classify_pesticide(product_id, name, dv_json, apps):
                 break
         if cls in ['гербицид', 'фунгицид', 'инсектицид']:
             tags.add(('method', 'вегетационное опрыскивание'))
-        elif cls == 'протравитель':
-            tags.add(('method', 'протравливание семян'))
         elif cls == 'фумигант':
             tags.add(('method', 'фумигация'))
         else:
