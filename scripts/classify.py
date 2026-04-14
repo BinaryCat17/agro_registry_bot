@@ -222,6 +222,7 @@ CLASS_MAP_DV = {
     'фенамидон': 'фунгицид',
     'ацибензолар-с-метил': 'фунгицид',
     'каптан': 'фунгицид',
+    'пенцикурон': 'фунгицид',
     'тирам': 'фунгицид',
     'метирам': 'фунгицид',
     'додин': 'фунгицид',
@@ -524,7 +525,8 @@ if old_crop_tag_ids:
 
 CROP_RULES = []
 
-def classify_pesticide(product_id, name, dv_json, apps):
+def classify_pesticide_OLD(product_id, name, dv_json, apps):
+    """OLD VERSION - DO NOT USE"""
     tags = set()
     name_lower = name.lower()
     
@@ -727,9 +729,15 @@ def classify_pesticide(product_id, name, dv_json, apps):
     dv_combined = ' '.join(dvs)
     
     # Classify by DV
+    # Classify by DV (priority method)
+    dv_classes = set()
     for dv_substr, cls in CLASS_MAP_DV.items():
         if dv_substr.lower() in dv_combined or dv_substr.lower() in name_lower:
-            tags.add(('class', cls))
+            dv_classes.add(cls)
+    
+    # Add DV-determined classes
+    for cls in dv_classes:
+        tags.add(('class', cls))
     
     # Collect texts from applications
     all_pests = []
@@ -756,27 +764,42 @@ def classify_pesticide(product_id, name, dv_json, apps):
         for category in categories:
             tags.add(('crop_group', category))
     
-    # Classify by pests
-    has_fungal = any(kw in pests_text for kw in FUNGAL_KEYWORDS)
-    has_insect = any(kw in pests_text for kw in INSECT_KEYWORDS)
-    has_herb = any(kw in pests_text for kw in HERB_KEYWORDS)
-    has_rodent = any(kw in pests_text for kw in RODENT_KEYWORDS)
-    has_mollusk = any(kw in pests_text for kw in MOLLUSK_KEYWORDS)
-    
-    if has_fungal:
-        tags.add(('class', 'фунгицид'))
-    if has_insect:
-        tags.add(('class', 'инсектицид'))
-    if has_herb:
-        tags.add(('class', 'гербицид'))
-    if has_rodent:
-        tags.add(('class', 'родентицид'))
-    if has_mollusk:
-        tags.add(('class', 'моллюскоцид'))
-    
-    # Special: if "паутинный клещ" or "клещ" strongly present without insects
-    if 'клещ' in pests_text and not has_insect:
-        tags.add(('class', 'акарицид'))
+    # Classify by pests ONLY if no DV-based classes found
+    # This prevents false positives like "вирус" in "переносчики вирусов" 
+    # triggering fungicide class for pure insecticides
+    if not dv_classes:
+        has_fungal = any(kw in pests_text for kw in FUNGAL_KEYWORDS)
+        has_insect = any(kw in pests_text for kw in INSECT_KEYWORDS)
+        has_herb = any(kw in pests_text for kw in HERB_KEYWORDS)
+        has_rodent = any(kw in pests_text for kw in RODENT_KEYWORDS)
+        has_mollusk = any(kw in pests_text for kw in MOLLUSK_KEYWORDS)
+        
+        if has_fungal:
+            tags.add(('class', 'фунгицид'))
+        if has_insect:
+            tags.add(('class', 'инсектицид'))
+        if has_herb:
+            tags.add(('class', 'гербицид'))
+        if has_rodent:
+            tags.add(('class', 'родентицид'))
+        if has_mollusk:
+            tags.add(('class', 'моллюскоцид'))
+        
+        # Special: if "паутинный клещ" or "клещ" strongly present without insects
+        if 'клещ' in pests_text and not has_insect:
+            tags.add(('class', 'акарицид'))
+    else:
+        # Even with DV classes, check for specific pest indicators that might add value
+        # But be careful not to add conflicting classes
+        has_insect = any(kw in pests_text for kw in INSECT_KEYWORDS)
+        has_rodent = any(kw in pests_text for kw in RODENT_KEYWORDS)
+        has_mollusk = any(kw in pests_text for kw in MOLLUSK_KEYWORDS)
+        
+        # Add rodenticide/molluscicide if clearly indicated by pests and not already classified
+        if has_rodent and 'родентицид' not in dv_classes:
+            tags.add(('class', 'родентицид'))
+        if has_mollusk and 'моллюскоцид' not in dv_classes:
+            tags.add(('class', 'моллюскоцид'))
     
     # Protivatel logic - only method, not class
     if 'протравливание семян' in methods_text or 'обработка семян' in methods_text:
@@ -857,6 +880,16 @@ for row in c.fetchall():
     all_apps.setdefault(row['nomer_reg'], []).append(dict(row))
 
 print(f"Classifying {len(pesticides)} pesticides...")
+
+# Clean old class tags before reclassification
+print("Cleaning old class tags...")
+c.execute("""
+    DELETE FROM product_tags 
+    WHERE product_type = 'pesticide' 
+    AND tag_id IN (SELECT id FROM tags WHERE category = 'class')
+""")
+print(f"Cleaned {c.rowcount} old class tags")
+
 inserts = set()
 classified = 0
 no_class = []
