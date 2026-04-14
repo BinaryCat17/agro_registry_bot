@@ -39,13 +39,6 @@ def main():
             print(f"Created tag: crop_group = {group_name} (id={tid})")
         group_to_id[group_name] = tid
     
-    # Also ensure 'все культуры' tag exists
-    tid = get_tag_id('crop_group', 'все культуры')
-    if not tid:
-        tid = add_tag('crop_group', 'все культуры')
-        print(f"Created tag: crop_group = все культуры (id={tid})")
-    group_to_id['все культуры'] = tid
-    
     # Get all crop tags
     c.execute("SELECT id, name FROM tags WHERE category = 'crop'")
     crop_tags = {row['name']: row['id'] for row in c.fetchall()}
@@ -75,12 +68,7 @@ def main():
         product_type = row['product_type']
         crop_name = row['crop_name']
         
-        # Add to 'все культуры' group
-        all_crops_id = group_to_id['все культуры']
-        key = (product_id, product_type, all_crops_id)
-        assignments[key] = assignments.get(key, 0) + 1
-        
-        # Add to specific groups
+        # Add to specific groups based on crop
         if crop_name in crop_to_groups:
             for group_id in crop_to_groups[crop_name]:
                 key = (product_id, product_type, group_id)

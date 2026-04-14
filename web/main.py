@@ -145,7 +145,6 @@ async def api_tags(type: str = Query("pesticides", regex="^(pesticides|agrochemi
         group_rows = db.execute("""
             SELECT t.id, t.name FROM tags t
             WHERE t.category = 'crop_group' 
-              AND t.name != 'все культуры'
               AND t.name NOT IN ('земли несельхозназначения', 'пары', 'все культуры открытого грунта',
                                  'вырубки разной давности', 'нежилые помещения', 'нежилые_помещения',
                                  'прочие', 'сорняки_вредные_объекты')
