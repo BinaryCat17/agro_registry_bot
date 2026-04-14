@@ -778,10 +778,10 @@ def classify_pesticide(product_id, name, dv_json, apps):
         if re.search(pattern, methods_text):
             tags.add(('method', method_tag))
     
-    # Remove generic 'опрыскивание' if specific spray method exists
+    # Add generic 'опрыскивание' if specific spray method exists
     specific_spray_methods = {'вегетационное опрыскивание', 'опрыскивание посадок', 'обработка почвы'}
     if any(('method', m) in tags for m in specific_spray_methods):
-        tags.discard(('method', 'опрыскивание'))
+        tags.add(('method', 'опрыскивание'))
     
     if 'фумигация' in methods_text:
         tags.add(('class', 'фумигант'))
@@ -932,10 +932,10 @@ def classify_agrochemical(product_id, name, dv_json, apps):
         if re.search(pattern, methods_text):
             tags.add(('method', method_tag))
     
-    # Remove generic 'опрыскивание' if specific spray method exists
+    # Add generic 'опрыскивание' if specific spray method exists
     specific_spray_methods = {'вегетационное опрыскивание', 'опрыскивание посадок', 'обработка почвы'}
     if any(('method', m) in tags for m in specific_spray_methods):
-        tags.discard(('method', 'опрыскивание'))
+        tags.add(('method', 'опрыскивание'))
     
     # Fallbacks by name
     if any(kw in name_lower for kw in ['удобрение', 'азотное', 'фосфорное', 'калийное', 'комплексное', 'микроудобрение', 'микрогранулы', 'гранулированный', 'гранулы', 'водорастворимые', 'жидкое', 'раствор', 'концентрат', 'npk', 'n-p-k', 'суперфосфат', 'нитрат', 'сульфат', 'аммофос', 'диаммофос', 'карбамид', 'калийная', 'кальциевая селитра', 'аммоний', 'фосфоритная', 'микроэлементы', 'хелат', 'минеральное', 'органо-минеральное', 'гумат', 'гуминовые', 'гумимакс', 'фульвокислоты', 'аминокислоты', 'биостимулятор', 'стимулятор', 'стимул', 'активатор', 'экстракт', 'комплекс', 'подкормка', 'подкормок', 'подкормки', 'фосфат', 'селитра', 'соли', 'марки', 'фид', 'фол', 'юнгфилд', 'саенс', 'сайенс', 'биоудобрение', 'гумистим', 'калийфосфат', 'плантафид', 'азофит', 'бионутриент', 'агромикс', 'агромаг', 'натурамин', 'агролиф', 'инкриа', 'органит', 'сиаптон', 'хеси', 'буст', 'росток', 'кео', 'хайкоут', 'коут', 'инокулянт']):
