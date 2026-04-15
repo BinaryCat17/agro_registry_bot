@@ -5,3 +5,6 @@ itsdangerous
 litellm
 pyyaml
 tavily-python
+fastapi
+uvicorn
+pydantic

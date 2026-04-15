@@ -5,13 +5,15 @@ Adds category tags (crop_group) based on individual crop tags.
 """
 
 import sqlite3
+import os
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace/agro_registry_bot')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 
 # Import hierarchy from centralized module
 from src.crop_hierarchy import CROP_HIERARCHY, get_crop_groups
 
-DB_PATH = '/root/.openclaw/workspace/agro_registry_bot/data/reestr.db'
+DB_PATH = os.path.join(BASE_DIR, 'data', 'reestr.db')
 
 
 def main():

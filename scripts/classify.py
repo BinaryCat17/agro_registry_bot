@@ -1,12 +1,14 @@
 import sqlite3
 import json
 import re
+import os
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace/agro_registry_bot')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 from src.crop_parser import extract_crops, extract_crops_with_categories
 
 # Connect to DB
-db = sqlite3.connect('data/reestr.db')
+db = sqlite3.connect(os.path.join(BASE_DIR, 'data', 'reestr.db'))
 db.row_factory = sqlite3.Row
 c = db.cursor()
 

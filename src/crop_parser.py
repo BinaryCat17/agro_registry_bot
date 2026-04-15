@@ -147,6 +147,17 @@ CANONICAL_MAP = {
     'лук всех генера-ций': 'лук всех генераций',
     'лен -долгунец': 'лен-долгунец',
     'лен- долгунец': 'лен-долгунец',
+    'овес яровые': 'овес яровой',
+    'рожь озимые': 'рожь озимая',
+    'рожь яровые': 'рожь яровая',
+    'ячмень озимые': 'ячмень озимый',
+    'ячмень яровые': 'ячмень яровой',
+    'яблоня груша': 'яблоня',
+    'картофель in vitro': 'картофель',
+    'баклажан открытого и защищенного грунта': 'баклажан',
+    'томат открытого и защищенного грунта': 'томат',
+    'роза открытого и защищенного грунта': 'роза',
+    'бобы кормовые': 'кормовые бобы',
 }
 
 # Плохие подстроки — если встречаются, отклоняем целиком
@@ -184,9 +195,6 @@ BAD_SUBSTRINGS = {
     'в части',
     'предназначен',
     'расположен',
-    'семеннное',
-    'семенное',
-    'семенной',
     'посевные',
     'декорат',
     'нефтепроводов',
@@ -213,7 +221,6 @@ BAD_SUBSTRINGS = {
     'поверхность зерна',
     'картофель в погребах',
     'картофель продоволь',
-    'продоволь-ственный',
     'корейского',
     'железных',
     'древесина',
@@ -237,7 +244,6 @@ BAD_SUBSTRINGS = {
     'сенокосы',
     'сенокосные',
     'луга',
-    'поля',
     'поля ',
     'поля под',
     'паровые',
@@ -252,13 +258,6 @@ BAD_SUBSTRINGS = {
     'крупа ',
     'тара',
     'овес рапс',
-    'овес яровые',
-    'рожь озимые',
-    'рожь яровые',
-    'ячмень озимые',
-    'ячмень яровые',
-    'тритикале озим',
-    'тритикале яров',
     'сои-бобов',
     'соя-бобы',
     'соягорох',
@@ -294,11 +293,9 @@ BAD_SUBSTRINGS = {
     'промышленной переработки',
     'покосы',
     'насып',
-    'посев',
     'посадки',
     'другие посадки',
     'озимй',
-    'цве',
     'шос',
     'также',
     'т.ч.',
@@ -430,8 +427,19 @@ def clean_crop_string(s):
     if not s:
         return ""
     s = s.lower().replace('ё', 'е')
-    s = re.sub(r'\([^)]*\)', '', s)
     s = re.sub(r'[\u00ad\u0301]', '', s)
+    # Remove parenthetical notes (most are junk like 'сорта', 'гибриды')
+    s = re.sub(r'\([^)]*\)', '', s)
+    # Remove common purpose/location suffixes globally before splitting
+    s = re.sub(r'\s+открытого\s+и\s+защищ[её]нного\s+грунта', '', s)
+    s = re.sub(r'\s+открытого\s+грунта', '', s)
+    s = re.sub(r'\s+защищ[её]нного\s+грунта', '', s)
+    s = re.sub(r'\s+на\s+зерно', '', s)
+    s = re.sub(r'\s+на\s+силос', '', s)
+    s = re.sub(r'\s+на\s+масло', '', s)
+    s = re.sub(r'\s+на\s+семена', '', s)
+    s = re.sub(r'\s+на\s+корм', '', s)
+    s = re.sub(r'\s+в\s+культуре\s+in\s+vitro', '', s)
     return s.strip()
 
 
@@ -443,7 +451,7 @@ def is_bad_substring_present(s):
 
 
 def split_crops(s):
-    parts = re.split(r'[,;]|\s+и\s+', s)
+    parts = re.split(r'[,;]|\s+и\s+|\.\s+', s)
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -475,6 +483,22 @@ def clean_single_crop(part):
     for prefix in junk_prefixes:
         if part.startswith(prefix):
             part = part[len(prefix):].strip()
+            if not part:
+                return None
+
+    # Remove trailing junk words / adjectives / purpose suffixes
+    junk_suffixes = [
+        ' продовольственный', ' продоволь-ственный',
+        ' семенной', ' семенное',
+        ' посевной', ' посевная', ' посевное',
+        ' черная', ' черный', ' красная', ' красный', ' белая', ' белый',
+        ' на зерно', ' на силос', ' на масло', ' на семена', ' на корм',
+        ' в культуре in vitro',
+        ' открытого и защищенного грунта', ' открытого и защищённого грунта',
+    ]
+    for suffix in junk_suffixes:
+        if part.endswith(suffix):
+            part = part[:-len(suffix)].strip()
             if not part:
                 return None
 
@@ -514,8 +538,8 @@ def is_valid_crop_tag(name):
         return False
     if name.endswith(BAD_ENDINGS):
         return False
-    # Skip single-word adjectives
-    if len(words_set) == 1 and re.search(r'(ый|ая|ое|ий|ой|ие|ые|ую|ым|ом|его|ье|ья)$', name):
+    # Skip single-word adjectives (including genitive forms like 'ого', 'ых', 'их')
+    if len(words_set) == 1 and re.search(r'(ый|ая|ое|ий|ой|ие|ые|ую|ым|ом|его|ье|ья|ого|ых|их|ей)$', name):
         return False
     # Skip starting with prepositions
     if name.startswith(('а ', 'и ', 'или ', 'но ', 'в ', 'на ', 'с ', 'под ', 'за ',
@@ -598,6 +622,33 @@ def extract_crops(kultura_string):
         crop = canonicalize_crop(crop)
         if is_valid_crop_tag(crop):
             results.append(crop)
+    
+    # Fallback: если стандартный путь ничего не дал,
+    # пробуем парсить содержимое скобок как отдельные культуры.
+    # Здесь используем жёсткий whitelist (только известные культуры),
+    # чтобы не пропускать мусор типа "сорта", "гибриды".
+    if not results and not additional_crops:
+        from src.crop_hierarchy import ALL_CROPS
+        s = kultura_string.lower().replace('ё', 'е')
+        s = re.sub(r'[\u00ad\u0301]', '', s)
+        s = re.sub(r'[\(\)]', ', ', s)
+        s = re.sub(r'\s+открытого\s+и\s+защищ[её]нного\s+грунта', '', s)
+        s = re.sub(r'\s+открытого\s+грунта', '', s)
+        s = re.sub(r'\s+защищ[её]нного\s+грунта', '', s)
+        s = re.sub(r'\s+на\s+зерно', '', s)
+        s = re.sub(r'\s+на\s+силос', '', s)
+        s = re.sub(r'\s+на\s+масло', '', s)
+        s = re.sub(r'\s+на\s+семена', '', s)
+        s = re.sub(r'\s+на\s+корм', '', s)
+        s = re.sub(r'\s+в\s+культуре\s+in\s+vitro', '', s)
+        for part in split_crops(s):
+            crop = clean_single_crop(part)
+            if not crop:
+                continue
+            crop = singularize_crop(crop)
+            crop = canonicalize_crop(crop)
+            if crop in ALL_CROPS:
+                results.append(crop)
     
     # Добавляем дополнительные культуры из специальных категорий
     for crop in additional_crops:

@@ -3,12 +3,14 @@
 Run this after database update to regenerate clean crop tags."""
 
 import sqlite3
+import os
 import sys
-sys.path.insert(0, '/root/.openclaw/workspace/agro_registry_bot')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 
 from src.crop_parser import extract_crops
 
-DB_PATH = 'data/reestr.db'
+DB_PATH = os.path.join(BASE_DIR, 'data', 'reestr.db')
 conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
 

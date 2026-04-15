@@ -2,7 +2,9 @@ import sqlite3
 import json
 import re
 
-DB_PATH = '/root/.openclaw/workspace/agro_registry_bot/data/reestr.db'
+import os
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, 'data', 'reestr.db')
 
 # Connect to DB
 db = sqlite3.connect(DB_PATH)
