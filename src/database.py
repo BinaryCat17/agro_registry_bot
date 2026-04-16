@@ -156,11 +156,18 @@ class RegistryDatabase:
         where = "pp.kultura REGEXP ?"
         if active_only:
             where += " AND p.status = 'Действует'"
+        # Handle multiple nomer_reg (comma-separated) in JOIN
+        join_condition = """(
+            p.nomer_reg = pp.nomer_reg 
+            OR p.nomer_reg LIKE pp.nomer_reg || ',%'
+            OR p.nomer_reg LIKE '%,' || pp.nomer_reg || ',%'
+            OR p.nomer_reg LIKE '%,' || pp.nomer_reg
+        )"""
         query = f"""
             SELECT DISTINCT p.id, p.nomer_reg, p.naimenovanie, p.deystvuyushchee_veshchestvo,
                    p.registrant, p.status, p.srok_reg
             FROM pestitsidy p
-            JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg
+            JOIN pestitsidy_primeneniya pp ON {join_condition}
             WHERE {where}
             ORDER BY p.naimenovanie
             LIMIT {limit} OFFSET {offset}
@@ -185,11 +192,18 @@ class RegistryDatabase:
         where = "pp.vrednyy_obekt REGEXP ?"
         if active_only:
             where += " AND p.status = 'Действует'"
+        # Handle multiple nomer_reg (comma-separated) in JOIN
+        join_condition = """(
+            p.nomer_reg = pp.nomer_reg 
+            OR p.nomer_reg LIKE pp.nomer_reg || ',%'
+            OR p.nomer_reg LIKE '%,' || pp.nomer_reg || ',%'
+            OR p.nomer_reg LIKE '%,' || pp.nomer_reg
+        )"""
         query = f"""
             SELECT DISTINCT p.id, p.nomer_reg, p.naimenovanie, p.deystvuyushchee_veshchestvo,
                    p.registrant, p.status, p.srok_reg
             FROM pestitsidy p
-            JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg
+            JOIN pestitsidy_primeneniya pp ON {join_condition}
             WHERE {where}
             ORDER BY p.naimenovanie
             LIMIT {limit} OFFSET {offset}

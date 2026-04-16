@@ -224,20 +224,34 @@ async def api_search(
             if active_only:
                 where += " AND p.status = 'Действует'"
             where += " " + tag_sql
-            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where}", (yo_pattern(q), *tag_params))
+            # Handle multiple nomer_reg (comma-separated) in JOIN
+            join_condition = """(
+                p.nomer_reg = pp.nomer_reg 
+                OR p.nomer_reg LIKE pp.nomer_reg || ',%'
+                OR p.nomer_reg LIKE '%,' || pp.nomer_reg || ',%'
+                OR p.nomer_reg LIKE '%,' || pp.nomer_reg
+            )"""
+            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON {join_condition} WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
             if tag_ids:
-                items = db.execute(f"SELECT DISTINCT p.* FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
+                items = db.execute(f"SELECT DISTINCT p.* FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON {join_condition} WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "pest":
             items = db.search_pesticides_by_pest(q, active_only=active_only, limit=limit, offset=offset)
             where = "pp.vrednyy_obekt REGEXP ?"
             if active_only:
                 where += " AND p.status = 'Действует'"
             where += " " + tag_sql
-            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where}", (yo_pattern(q), *tag_params))
+            # Handle multiple nomer_reg (comma-separated) in JOIN
+            join_condition = """(
+                p.nomer_reg = pp.nomer_reg 
+                OR p.nomer_reg LIKE pp.nomer_reg || ',%'
+                OR p.nomer_reg LIKE '%,' || pp.nomer_reg || ',%'
+                OR p.nomer_reg LIKE '%,' || pp.nomer_reg
+            )"""
+            total_res = db.execute(f"SELECT COUNT(DISTINCT p.id) as c FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON {join_condition} WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
             if tag_ids:
-                items = db.execute(f"SELECT DISTINCT p.* FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON p.nomer_reg = pp.nomer_reg WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
+                items = db.execute(f"SELECT DISTINCT p.* FROM pestitsidy p JOIN pestitsidy_primeneniya pp ON {join_condition} WHERE {where} ORDER BY p.naimenovanie LIMIT {limit} OFFSET {offset}", (yo_pattern(q), *tag_params))
         elif field == "reg_number":
             where = "nomer_reg REGEXP ?"
             if active_only:
