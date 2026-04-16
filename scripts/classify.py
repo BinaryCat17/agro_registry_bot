@@ -1560,15 +1560,19 @@ METHOD_RULES = [
     (r'внесение', 'внесение'),
 ]
 
-# Delete old crop_group tags before reclassification
-c.execute("SELECT id FROM tags WHERE category = 'crop_group'")
+# Delete old crop and crop_group tags before reclassification
+c.execute("SELECT id FROM tags WHERE category IN ('crop', 'crop_group')")
 old_crop_tag_ids = [row[0] for row in c.fetchall()]
 if old_crop_tag_ids:
     placeholders = ','.join(['?' for _ in old_crop_tag_ids])
     c.execute(f"DELETE FROM product_tags WHERE tag_id IN ({placeholders})", old_crop_tag_ids)
     c.execute(f"DELETE FROM tags WHERE id IN ({placeholders})", old_crop_tag_ids)
     db.commit()
-    print(f"Cleaned {len(old_crop_tag_ids)} old crop_group tags")
+    print(f"Cleaned {len(old_crop_tag_ids)} old crop/crop_group tags")
+    # Clear TAGS cache for deleted categories to avoid stale IDs
+    for cat in ['crop', 'crop_group']:
+        if cat in TAGS:
+            TAGS[cat].clear()
 
 CROP_RULES = []
 
@@ -2054,6 +2058,19 @@ def classify_agrochemical(product_id, name, dv_json, apps):
 print("\nLoading agrochemicals...")
 c.execute('SELECT id, rn, preparat FROM agrokhimikaty')
 agro = c.fetchall()
+
+# Clean old agrochemical crop tags before reclassification
+c.execute("""
+    SELECT pt.tag_id FROM product_tags pt
+    JOIN tags t ON pt.tag_id = t.id
+    WHERE pt.product_type = 'agrochemical' AND t.category IN ('crop', 'crop_group')
+""")
+old_agro_crop_ids = [row[0] for row in c.fetchall()]
+if old_agro_crop_ids:
+    placeholders = ','.join(['?' for _ in old_agro_crop_ids])
+    c.execute(f"DELETE FROM product_tags WHERE tag_id IN ({placeholders})", old_agro_crop_ids)
+    db.commit()
+    print(f"Cleaned {len(old_agro_crop_ids)} old agrochemical crop tags")
 
 c.execute('SELECT rn, marka, oblast, kultura FROM agrokhimikaty_primeneniya')
 all_agro_apps = {}

@@ -587,6 +587,127 @@ async def admin_remove_user(email: str, _=Depends(require_admin)):
     return {"status": "ok"}
 
 # ───────────────────────────────────────────────────────────────────────────────
+# DATABASE UPDATE & CLASSIFICATION
+# ───────────────────────────────────────────────────────────────────────────────
+
+import subprocess
+import threading
+
+update_lock = threading.Lock()
+classify_lock = threading.Lock()
+last_update_result = {"success": None, "logs": "", "error": "", "finished_at": None}
+last_classify_result = {"success": None, "logs": "", "error": "", "finished_at": None}
+
+@app.post("/admin/db/update")
+async def admin_update_db(_=Depends(require_admin)):
+    """Обновление базы данных с сайта Минсельхоза"""
+    if update_lock.locked():
+        return {"status": "error", "message": "Обновление уже выполняется"}
+    
+    def run_update():
+        with update_lock:
+            project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            try:
+                result = subprocess.run(
+                    ["python3", "update_db.py"],
+                    cwd=project_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=600
+                )
+                return result.returncode == 0, result.stdout + result.stderr
+            except Exception as e:
+                return False, str(e)
+    
+    # Run in background
+    threading.Thread(target=run_update, daemon=True).start()
+    return {"status": "ok", "message": "Обновление запущено. Это может занять несколько минут."}
+
+@app.post("/admin/db/classify")
+async def admin_classify_db(_=Depends(require_admin)):
+    """Переклассификация базы данных (культуры и классы препаратов)"""
+    global last_classify_result
+    if classify_lock.locked():
+        return {"status": "error", "message": "Классификация уже выполняется"}
+    
+    def run_classify():
+        global last_classify_result
+        with classify_lock:
+            project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            scripts_dir = os.path.join(project_dir, "scripts")
+            logs = []
+            
+            try:
+                # Step 1: Rebuild crops
+                logs.append("=== Rebuilding crops ===")
+                result = subprocess.run(
+                    ["python3", os.path.join(scripts_dir, "rebuild_crops.py")],
+                    cwd=project_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                logs.append(result.stdout + result.stderr)
+                if result.returncode != 0:
+                    raise Exception(f"rebuild_crops.py failed with code {result.returncode}")
+                
+                # Step 2: Classify products
+                logs.append("=== Classifying products ===")
+                result = subprocess.run(
+                    ["python3", os.path.join(scripts_dir, "classify.py")],
+                    cwd=project_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                logs.append(result.stdout + result.stderr)
+                if result.returncode != 0:
+                    raise Exception(f"classify.py failed with code {result.returncode}")
+                
+                # Step 3: Classify crop groups
+                logs.append("=== Classifying crop groups ===")
+                result = subprocess.run(
+                    ["python3", os.path.join(scripts_dir, "classify_crop_groups.py")],
+                    cwd=project_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                logs.append(result.stdout + result.stderr)
+                if result.returncode != 0:
+                    raise Exception(f"classify_crop_groups.py failed with code {result.returncode}")
+                
+                last_classify_result = {
+                    "success": True, 
+                    "logs": "\n".join(logs), 
+                    "error": "", 
+                    "finished_at": __import__('datetime').datetime.now().isoformat()
+                }
+            except Exception as e:
+                import traceback
+                last_classify_result = {
+                    "success": False, 
+                    "logs": "\n".join(logs), 
+                    "error": str(e) + "\n" + traceback.format_exc(), 
+                    "finished_at": __import__('datetime').datetime.now().isoformat()
+                }
+    
+    # Run in background
+    last_classify_result = {"success": None, "logs": "", "error": "", "finished_at": None}
+    threading.Thread(target=run_classify, daemon=True).start()
+    return {"status": "ok", "message": "Классификация запущена. Это может занять несколько минут."}
+
+@app.get("/admin/db/status")
+async def admin_db_status(_=Depends(require_admin)):
+    """Проверка статуса обновления/классификации"""
+    return {
+        "updating": update_lock.locked(),
+        "classifying": classify_lock.locked(),
+        "last_update": last_update_result,
+        "last_classify": last_classify_result
+    }
+
+# ───────────────────────────────────────────────────────────────────────────────
 # CHAT
 # ───────────────────────────────────────────────────────────────────────────────
 

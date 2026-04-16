@@ -53,6 +53,31 @@
       </div>
 
       <template v-else>
+        <!-- Database Management -->
+        <div class="card">
+          <h3 style="margin:0 0 10px;">Управление базой данных</h3>
+          <p style="color:var(--muted);font-size:13px;margin:0 0 12px;">
+            Обновление данных с реестра Минсельхоза и переклассификация
+          </p>
+          <div class="form" style="margin-bottom:10px;">
+            <button class="btn" @click="updateDb" :disabled="updating || classifying" style="background:#3b82f6;">
+              {{ updating ? '⏳ Обновление...' : '🔄 Обновить базу' }}
+            </button>
+            <button class="btn" @click="classifyDb" :disabled="updating || classifying" style="background:#8b5cf6;">
+              {{ classifying ? '⏳ Классификация...' : '📊 Переклассифицировать' }}
+            </button>
+            <button class="btn" @click="checkStatus" :disabled="updating || classifying" style="background:#6b7280;">
+              🔍 Проверить статус
+            </button>
+          </div>
+          <div v-if="dbMessage" style="margin-top:10px;color:var(--accent);font-size:14px;">{{ dbMessage }}</div>
+          <div v-if="dbError" class="error" style="white-space:pre-wrap;font-family:monospace;font-size:12px;background:var(--panel);padding:10px;border-radius:8px;max-height:200px;overflow:auto;">{{ dbError }}</div>
+          <div v-if="dbLogs" style="margin-top:10px;">
+            <div style="color:var(--muted);font-size:12px;margin-bottom:4px;">Логи:</div>
+            <pre style="background:var(--panel);padding:10px;border-radius:8px;font-size:11px;max-height:300px;overflow:auto;color:var(--text);white-space:pre-wrap;">{{ dbLogs }}</pre>
+          </div>
+        </div>
+
         <div class="card">
           <h3 style="margin:0 0 10px;"
             >Добавить пользователя</h3>
@@ -123,7 +148,12 @@
           newEmail: '',
           adding: false,
           message: '',
-          error: ''
+          error: '',
+          updating: false,
+          classifying: false,
+          dbMessage: '',
+          dbError: '',
+          dbLogs: ''
         };
       },
       methods: {
@@ -174,6 +204,64 @@
             await this.load();
           } catch (e) {
             this.error = 'Ошибка удаления';
+          }
+        },
+        async updateDb() {
+          this.dbError = '';
+          this.dbMessage = '';
+          this.updating = true;
+          try {
+            const r = await fetch('/admin/db/update', { method: 'POST' });
+            if (r.status === 403) { this.isAdmin = false; return; }
+            const d = await r.json();
+            if (d.status === 'ok') {
+              this.dbMessage = d.message;
+            } else {
+              this.dbError = d.message || 'Ошибка обновления';
+            }
+          } catch (e) {
+            this.dbError = 'Ошибка соединения';
+          }
+          this.updating = false;
+        },
+        async classifyDb() {
+          this.dbError = '';
+          this.dbMessage = '';
+          this.dbLogs = '';
+          this.classifying = true;
+          try {
+            const r = await fetch('/admin/db/classify', { method: 'POST' });
+            if (r.status === 403) { this.isAdmin = false; return; }
+            const d = await r.json();
+            if (d.status === 'ok') {
+              this.dbMessage = d.message + ' Нажмите "Проверить статус" через минуту.';
+            } else {
+              this.dbError = d.message || 'Ошибка классификации';
+            }
+          } catch (e) {
+            this.dbError = 'Ошибка соединения';
+          }
+          this.classifying = false;
+        },
+        async checkStatus() {
+          try {
+            const r = await fetch('/admin/db/status');
+            if (r.status === 403) { this.isAdmin = false; return; }
+            const d = await r.json();
+            this.updating = d.classifying || d.updating;
+            
+            // Show last classify result
+            if (d.last_classify && d.last_classify.finished_at) {
+              if (d.last_classify.success === false) {
+                this.dbError = 'Ошибка: ' + d.last_classify.error;
+                this.dbLogs = d.last_classify.logs;
+              } else if (d.last_classify.success === true) {
+                this.dbMessage = '✅ Классификация завершена успешно';
+                this.dbLogs = d.last_classify.logs;
+              }
+            }
+          } catch (e) {
+            console.error('Status check failed', e);
           }
         },
         formatDate(ts) {
