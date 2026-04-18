@@ -261,6 +261,17 @@ async def api_search(
             total_res = db.execute(f"SELECT COUNT(*) as c FROM pestitsidy WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
         else:
+            # FAST PATH: empty query, no filters - just get all with pagination
+            if not q and not tag_ids and not crop_group_id:
+                if active_only:
+                    items = db.execute(f"SELECT * FROM pestitsidy WHERE status = 'Действует' ORDER BY naimenovanie LIMIT {limit} OFFSET {offset}")
+                    total_res = db.execute("SELECT COUNT(*) as c FROM pestitsidy WHERE status = 'Действует'")
+                else:
+                    items = db.execute(f"SELECT * FROM pestitsidy ORDER BY naimenovanie LIMIT {limit} OFFSET {offset}")
+                    total_res = db.execute("SELECT COUNT(*) as c FROM pestitsidy")
+                total = total_res[0]['c']
+                return {"items": items, "total": total, "page": page, "limit": limit}
+            
             seen = set()
             all_items = []
             # Special case: empty query with filters - get all matching products directly
@@ -380,6 +391,17 @@ async def api_search(
             total_res = db.execute(f"SELECT COUNT(*) as c FROM agrokhimikaty WHERE {where}", (yo_pattern(q), *tag_params))
             total = total_res[0]['c']
         else:
+            # FAST PATH: empty query, no filters - just get all with pagination
+            if not q and not tag_ids and not crop_group_id:
+                if active_only:
+                    items = db.execute(f"SELECT * FROM agrokhimikaty WHERE status = 'Действует' ORDER BY preparat LIMIT {limit} OFFSET {offset}")
+                    total_res = db.execute("SELECT COUNT(*) as c FROM agrokhimikaty WHERE status = 'Действует'")
+                else:
+                    items = db.execute(f"SELECT * FROM agrokhimikaty ORDER BY preparat LIMIT {limit} OFFSET {offset}")
+                    total_res = db.execute("SELECT COUNT(*) as c FROM agrokhimikaty")
+                total = total_res[0]['c']
+                return {"items": items, "total": total, "page": page, "limit": limit}
+            
             seen = set()
             all_items = []
             # Special case: empty query with filters - get all matching products directly

@@ -26,12 +26,13 @@ conn.commit()
 # Step 2: Build app_id -> product_id mappings (handle multiple products per reg number)
 app_to_pids = {}  # (product_type, app_id) -> set of product_ids
 # For pesticides - handle multiple nomer_reg (comma-separated)
-cur.execute('SELECT pp.id, p.id, p.nomer_reg, pp.nomer_reg as pp_nomer FROM pestitsidy_primeneniya pp JOIN pestitsidy p ON (
+join_sql = """(
     p.nomer_reg = pp.nomer_reg 
-    OR p.nomer_reg LIKE pp.nomer_reg || ",%"
-    OR p.nomer_reg LIKE "%," || pp.nomer_reg || ",%"
-    OR p.nomer_reg LIKE "%," || pp.nomer_reg
-)')
+    OR p.nomer_reg LIKE pp.nomer_reg || ',%'
+    OR p.nomer_reg LIKE '%,' || pp.nomer_reg || ',%'
+    OR p.nomer_reg LIKE '%,' || pp.nomer_reg
+)"""
+cur.execute(f'SELECT pp.id, p.id FROM pestitsidy_primeneniya pp JOIN pestitsidy p ON {join_sql}')
 for row in cur.fetchall():
     app_id = row[0]
     pid = row[1]
