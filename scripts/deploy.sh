@@ -8,7 +8,7 @@ REMOTE_DIR="/opt/agro_registry_bot"
 SERVICE="agro-registry"
 
 echo "==> Syncing source to server..."
-rsync -az --delete \
+rsync -az --delete --chown=root:root \
   --exclude='.git' \
   --exclude='.venv' \
   --exclude='data' \
